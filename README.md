@@ -1,7 +1,7 @@
 # ClusterInventory API
 
 The `ClusterInventory API` provides a reliable, consistent, and automated approach for any multi-cluster application (framework, toolset) to discover available clusters and take actions accordingly, in a way similar to service discovery works in a microservice architecture. Through the inventory, the application can query for a list of clusters to access, or watch for an ever-flowing stream of cluster lifecycle events which the application can act upon timely, such as auto-scaling, upgrades, failures, and connectivity issues.
-This repo will hold design documents and implementation of the [ClusterInventory API](https://docs.google.com/document/d/1sUWbe81BTclQ4Uax3flnCoKtEWngH-JA9MyCqljJCBM/).
+This repo will hold design documents and implementation of the cluster inventory API as described in [KEP 4322](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/4322-cluster-inventory/README.md) and [Discussion doc](https://docs.google.com/document/d/1sUWbe81BTclQ4Uax3flnCoKtEWngH-JA9MyCqljJCBM/).
 
 ## Community, discussion, contribution, and support
 
