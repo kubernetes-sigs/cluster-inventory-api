@@ -121,6 +121,7 @@ const (
 	LabelClusterSetKey = "multicluster.x-k8s.io/clusterset"
 )
 
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Namespaced
