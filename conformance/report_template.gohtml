@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Cluster Inventory API conformance report</title>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+        }
+        td {
+            padding: 2px;
+        }
+    </style>
+</head>
+<body>
+<h2>Cluster Inventory API Conformance Report</h2>
+
+{{range .Groups}}
+    <h3>{{.Name}}</h3>
+    <table>
+        <thead>
+        <tr>
+            <th>Conformant</th>
+            <th>Description</th>
+        </tr>
+        </thead>
+        {{range .Tests}}
+            <tr>
+                {{ if .Failed }}
+                    <td style="color:gray">Unknown{{.Message}}</td>
+                {{ else if .Conformant }}
+                    <td style="color:green">Yes{{.Message}}</td>
+                {{ else }}
+                    <td style="color:red">No{{.Message}}</td>
+                {{end}}
+                <td><a href="{{.Ref}}">{{.Desc}}</a></td>
+            </tr>
+        {{end}}
+    </table>
+{{end}}
+</body>
+</html>
