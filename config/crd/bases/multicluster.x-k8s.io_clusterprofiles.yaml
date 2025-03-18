@@ -168,7 +168,6 @@ spec:
                       minLength: 1
                       type: string
                   required:
-                  - lastObservedTime
                   - name
                   - value
                   type: object

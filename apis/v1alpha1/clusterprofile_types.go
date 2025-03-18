@@ -100,8 +100,8 @@ type Property struct {
 	// The value is the timestamp when the property was observed not the time when the property was updated in the cluster-profile.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
-	// +required
-	LastObservedTime metav1.Time `json:"lastObservedTime"`
+	// +optional
+	LastObservedTime metav1.Time `json:"lastObservedTime,omitempty"`
 }
 
 // Predefined healthy conditions indicate the cluster is in a good state or not.
