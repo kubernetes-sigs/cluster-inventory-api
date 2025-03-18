@@ -135,22 +135,26 @@ spec:
                 type: array
               properties:
                 description: |-
-                  Properties defines name/value pairs to represent properties of a cluster.
-                  It could be a collection of ClusterProperty (KEP-2149) resources,
-                  but could also be info based on other implementations.
-                  The names of the properties can be predefined names from ClusterProperty resources
-                  and is allowed to be customized by different cluster managers.
+                  Properties defines cluster characteristics through a list of Property objects.
+                  Each Property can be one of:
+                  1. A ClusterProperty resource (as defined in KEP-2149)
+                  2. Custom information from cluster manager implementations
+                  Property names support both:
+                  - Standard names from ClusterProperty resources
+                  - Custom names defined by cluster managers
                 items:
                   description: |-
-                    Property defines a name/value pair to represent a property of a cluster.
-                    It could be a ClusterProperty (KEP-2149) resource,
-                    but could also be info based on other implementations.
-                    The name of the property can be predefined name from a ClusterProperty resource
-                    and is allowed to be customized by different cluster managers.
+                    Property defines the data structure to represent a property of a cluster.
+                    It contains a name/value pair and the last observed time of the property on the cluster.
                     This property can store various configurable details and metrics of a cluster,
-                    which may include information such as the number of nodes, total and free CPU,
-                    and total and free memory, among other potential attributes.
+                    which may include information such as the entry point of the cluster, types of nodes, location, etc. according to KEP 4322.
                   properties:
+                    lastObservedTime:
+                      description: |-
+                        LastObservedTime is the last time the property was observed on the corresponding cluster.
+                        The value is the timestamp when the property was observed not the time when the property was updated in the cluster-profile.
+                      format: date-time
+                      type: string
                     name:
                       description: |-
                         Name is the name of a property resource on cluster. It's a well-known
@@ -164,6 +168,7 @@ spec:
                       minLength: 1
                       type: string
                   required:
+                  - lastObservedTime
                   - name
                   - value
                   type: object
