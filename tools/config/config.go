@@ -16,7 +16,6 @@ import (
 	"reflect"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/tools/plugins"
-	"sigs.k8s.io/cluster-inventory-api/tools/plugins/ocm"
 	"sigs.k8s.io/cluster-inventory-api/tools/plugins/spiffe"
 	"sync"
 	"time"
@@ -31,13 +30,6 @@ const (
 var pluginMap = map[string]plugins.PluginInterface{}
 
 func init() {
-	ocmPlugin, err := ocm.NewPlugin()
-	if err == nil {
-		pluginMap[ocmPlugin.Name()] = ocmPlugin
-	} else {
-		utilruntime.HandleError(err)
-	}
-
 	spiffePlugin, err := spiffe.NewPlugin()
 	if err == nil {
 		pluginMap[spiffePlugin.Name()] = spiffePlugin

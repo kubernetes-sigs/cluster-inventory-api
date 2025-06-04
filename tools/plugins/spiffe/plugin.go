@@ -2,11 +2,13 @@ package spiffe
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"github.com/spiffe/go-spiffe/v2/proto/spiffe/workload"
 	"github.com/spiffe/spire/pkg/common/util"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"net"
-	"os"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/tools/plugins"
 )
@@ -15,12 +17,48 @@ import (
 // and the hub cluster install the spire agent to register all service account to the spire
 // server. Such that the controller on the hub cluster can fetch token from the spire server
 // to be authenticated to the spoke cluster.
-type Plugin struct {
-	client workload.SpiffeWorkloadAPIClient
+type Plugin struct{}
+
+const pluginName = "spiffe"
+
+type SpiffeConfig struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Config Config `json:"config"`
+}
+
+type Config struct {
+	Address  string `json:"address"`
+	Audience string `json:"audience"`
 }
 
 func NewPlugin() (plugins.PluginInterface, error) {
-	addrStr := os.Getenv("SPIFFE_ADDRESS")
+	return &Plugin{}, nil
+}
+
+func (p *Plugin) Name() string {
+	return pluginName
+}
+
+func (p *Plugin) Credential(cluster *v1alpha1.ClusterProfile) (*clientauthentication.ExecCredential, error) {
+	var spiffeConfig *SpiffeConfig
+	for _, provider := range cluster.Status.CredentialProviders {
+		if provider.Name != pluginName {
+			continue
+		}
+
+		spiffeConfig := &SpiffeConfig{}
+		err := json.Unmarshal(provider.Config.Raw, spiffeConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if spiffeConfig == nil {
+		return nil, fmt.Errorf("no SPIFFE configured")
+	}
+
+	addrStr := spiffeConfig.Config.Address
 	addr, err := net.ResolveUnixAddr("unix", addrStr)
 	target, err := util.GetTargetName(addr)
 	if err != nil {
@@ -30,17 +68,10 @@ func NewPlugin() (plugins.PluginInterface, error) {
 	if err != nil {
 		return nil, err
 	}
+	client := workload.NewSpiffeWorkloadAPIClient(conn)
 
-	return &Plugin{client: workload.NewSpiffeWorkloadAPIClient(conn)}, nil
-}
-
-func (p *Plugin) Name() string {
-	return "spiffe"
-}
-
-func (p *Plugin) Credential(_ *v1alpha1.ClusterProfile) (*clientauthentication.ExecCredential, error) {
-	svid, err := p.client.FetchJWTSVID(context.Background(), &workload.JWTSVIDRequest{
-		Audience: []string{"kube"},
+	svid, err := client.FetchJWTSVID(context.Background(), &workload.JWTSVIDRequest{
+		Audience: []string{spiffeConfig.Config.Audience},
 	})
 	if err != nil {
 		return nil, err

@@ -133,6 +133,21 @@ spec:
                   - type
                   type: object
                 type: array
+              credentialProviders:
+                description: |-
+                  CredentialProviders is a list credential providers that can provide kubeconfig
+                  credential to connect to the cluster.
+                items:
+                  properties:
+                    config:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    name:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               properties:
                 description: |-
                   Properties defines cluster characteristics through a list of Property objects.
