@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: clusterprofiles.multicluster.x-k8s.io
 spec:
   group: multicluster.x-k8s.io
@@ -66,16 +66,8 @@ spec:
                 description: Conditions contains the different condition statuses
                   for this cluster.
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -116,12 +108,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -140,11 +127,71 @@ spec:
                 items:
                   properties:
                     config:
+                      properties:
+                        certificate-authority-data:
+                          description: |-
+                            CAData contains PEM-encoded certificate authority certificates.
+                            If empty, system roots should be used.
+                          format: byte
+                          type: string
+                        config:
+                          description: |-
+                            Config holds additional config data that is specific to the exec
+                            plugin with regards to the cluster being authenticated to.
+
+                            This data is sourced from the clientcmd Cluster object's
+                            extensions[client.authentication.k8s.io/exec] field:
+
+                            clusters:
+                            - name: my-cluster
+                              cluster:
+                                ...
+                                extensions:
+                                - name: client.authentication.k8s.io/exec  # reserved extension name for per cluster exec config
+                                  extension:
+                                    audience: 06e3fbd18de8  # arbitrary config
+
+                            In some environments, the user config may be exactly the same across many clusters
+                            (i.e. call this exec plugin) minus some details that are specific to each cluster
+                            such as the audience.  This field allows the per cluster config to be directly
+                            specified with the cluster info.  Using this field to store secret data is not
+                            recommended as one of the prime benefits of exec plugins is that no secrets need
+                            to be stored directly in the kubeconfig.
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        disable-compression:
+                          description: |-
+                            DisableCompression allows client to opt-out of response compression for all requests to the server. This is useful
+                            to speed up requests (specifically lists) when client-server network bandwidth is ample, by saving time on
+                            compression (server-side) and decompression (client-side): https://github.com/kubernetes/kubernetes/issues/112296.
+                          type: boolean
+                        insecure-skip-tls-verify:
+                          description: |-
+                            InsecureSkipTLSVerify skips the validity check for the server's certificate.
+                            This will make your HTTPS connections insecure.
+                          type: boolean
+                        proxy-url:
+                          description: |-
+                            ProxyURL is the URL to the proxy to be used for all requests to this
+                            cluster.
+                          type: string
+                        server:
+                          description: Server is the address of the kubernetes cluster
+                            (https://hostname:port).
+                          type: string
+                        tls-server-name:
+                          description: |-
+                            TLSServerName is passed to the server for SNI and is used in the client to
+                            check server certificates against. If ServerName is empty, the hostname
+                            used to contact the server is used.
+                          type: string
+                      required:
+                      - server
                       type: object
-                      x-kubernetes-preserve-unknown-fields: true
                     name:
                       type: string
                   required:
+                  - config
                   - name
                   type: object
                 type: array
