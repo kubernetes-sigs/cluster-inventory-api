@@ -18,7 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 )
 
 // ClusterProfileSpec defines the desired state of ClusterProfile.
@@ -77,58 +77,8 @@ type ClusterProfileStatus struct {
 }
 
 type CredentialProvider struct {
-	Name   string         `json:"name"`
-	Config ProviderConfig `json:"config"`
-}
-
-type ProviderConfig struct {
-	// Server is the address of the kubernetes cluster (https://hostname:port).
-	Server string `json:"server"`
-	// TLSServerName is passed to the server for SNI and is used in the client to
-	// check server certificates against. If ServerName is empty, the hostname
-	// used to contact the server is used.
-	// +optional
-	TLSServerName string `json:"tls-server-name,omitempty"`
-	// InsecureSkipTLSVerify skips the validity check for the server's certificate.
-	// This will make your HTTPS connections insecure.
-	// +optional
-	InsecureSkipTLSVerify bool `json:"insecure-skip-tls-verify,omitempty"`
-	// CAData contains PEM-encoded certificate authority certificates.
-	// If empty, system roots should be used.
-	// +optional
-	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
-	// ProxyURL is the URL to the proxy to be used for all requests to this
-	// cluster.
-	// +optional
-	ProxyURL string `json:"proxy-url,omitempty"`
-	// DisableCompression allows client to opt-out of response compression for all requests to the server. This is useful
-	// to speed up requests (specifically lists) when client-server network bandwidth is ample, by saving time on
-	// compression (server-side) and decompression (client-side): https://github.com/kubernetes/kubernetes/issues/112296.
-	// +optional
-	DisableCompression bool `json:"disable-compression,omitempty"`
-	// Config holds additional config data that is specific to the exec
-	// plugin with regards to the cluster being authenticated to.
-	//
-	// This data is sourced from the clientcmd Cluster object's
-	// extensions[client.authentication.k8s.io/exec] field:
-	//
-	// clusters:
-	// - name: my-cluster
-	//   cluster:
-	//     ...
-	//     extensions:
-	//     - name: client.authentication.k8s.io/exec  # reserved extension name for per cluster exec config
-	//       extension:
-	//         audience: 06e3fbd18de8  # arbitrary config
-	//
-	// In some environments, the user config may be exactly the same across many clusters
-	// (i.e. call this exec plugin) minus some details that are specific to each cluster
-	// such as the audience.  This field allows the per cluster config to be directly
-	// specified with the cluster info.  Using this field to store secret data is not
-	// recommended as one of the prime benefits of exec plugins is that no secrets need
-	// to be stored directly in the kubeconfig.
-	// +optional
-	Config runtime.RawExtension `json:"config,omitempty"`
+	Name   string         			`json:"name"`
+	Cluster clientcmdv1.Cluster `json:"cluster,omitempty"`
 }
 
 // ClusterVersion represents version information about the cluster.

@@ -1,70 +1,61 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
-	clientauthenticationapi "k8s.io/client-go/pkg/apis/clientauthentication"
+	"net/http"
+	"net/url"
+
+	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"net/http"
-	"net/url"
+	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
-func getProviderFromClusterProfile(cluster *v1alpha1.ClusterProfile, providerName string) (v1alpha1.ProviderConfig, bool) {
-	for _, provider := range cluster.Status.CredentialProviders {
-		if provider.Name == providerName {
-			return provider.Config, true
-		}
-	}
-	return v1alpha1.ProviderConfig{}, false
+type Provider struct {
+	Name string
+	ExecConfig *clientcmdapi.ExecConfig
 }
 
-func configToExecCluster(config v1alpha1.ProviderConfig) (*clientauthenticationapi.Cluster, error) {
-	outConfig := &clientauthenticationapi.Cluster{
-		Server:                   config.Server,
-		TLSServerName:            config.TLSServerName,
-		InsecureSkipTLSVerify:    config.InsecureSkipTLSVerify,
-		CertificateAuthorityData: config.CertificateAuthorityData,
-		ProxyURL:                 config.ProxyURL,
-		DisableCompression:       config.DisableCompression,
-	}
-
-	return outConfig, nil
+type CredentialsProvider struct {
+	providers []Provider
 }
 
-// BuildConfigFromClusterProfile is to build the rest.Config to init the client.
-func BuildConfigFromClusterProfile(cluster *v1alpha1.ClusterProfile, providerName string) (*rest.Config, error) {
-	provider, found := getProviderFromClusterProfile(cluster, providerName)
-	if !found {
-		return nil, fmt.Errorf("no provider found for cluster profile %q", cluster.Name)
+func New(providers []Provider) *CredentialsProvider {
+	return &CredentialsProvider{
+		providers: providers,
+	}
+}
+
+func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile)(*rest.Config, error) {
+	// 1. obtain the correct provider from the CP
+	provider := cp.getProviderFromClusterProfile(clusterprofile)
+	if provider == nil {
+		return nil, fmt.Errorf("no matching provider found for cluster profile %q", clusterprofile.Name)
+	}
+	cluster := convertCluster(provider.Cluster)
+
+	// 2. Get Exec Config
+	execConfig := cp.getExecConfigFromConfig(provider.Name)
+	if execConfig == nil {
+		return nil, fmt.Errorf("no exec config found for provider %q", provider.Name)
 	}
 
-	execCluster, err := configToExecCluster(provider)
+	// 2. call exec
+	a, err := exec.GetAuthenticator(execConfig, cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// If it is not exec Config, we have to find a way to fallback to a different path.
-	execConfig := &clientcmdapi.ExecConfig{}
-	err = json.Unmarshal(provider.Config.Raw, execConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	a, err := exec.GetAuthenticator(execConfig, execCluster)
-	if err != nil {
-		return nil, err
-	}
-
+	// 3. build resulting rest.Config
 	config := &rest.Config{
-		Host: provider.Server,
+		Host: cluster.Server,
 		TLSClientConfig: rest.TLSClientConfig{
-			CAData: provider.CertificateAuthorityData,
+			CAData: cluster.CertificateAuthorityData,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
-			return url.Parse(provider.ProxyURL)
+			return url.Parse(cluster.ProxyURL)
 		},
 	}
 
@@ -74,4 +65,43 @@ func BuildConfigFromClusterProfile(cluster *v1alpha1.ClusterProfile, providerNam
 	}
 
 	return config, nil
+}
+
+func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) (*clientcmdapi.ExecConfig) {
+	for _, provider := range cp.providers {
+		if provider.Name == providerName {
+			return provider.ExecConfig
+		}
+	}
+	return nil
+}
+
+func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.CredentialProvider {
+	cpProviderTypes := map[string]*v1alpha1.CredentialProvider{}
+
+	for _, provider := range cluster.Status.CredentialProviders {
+		newProvider := provider.DeepCopy()
+		cpProviderTypes[provider.Name] = newProvider
+	}
+
+	// we return the first provider that the CP supports.
+	for _, providerType := range(cp.providers) {
+		if provider, found := cpProviderTypes[providerType.Name]; found {
+			return provider
+		}
+	}
+	return nil
+}
+
+func convertCluster(cluster clientcmdv1.Cluster) *clientauthentication.Cluster {
+	return &clientauthentication.Cluster{
+		Server:                   cluster.Server,
+		TLSServerName:            cluster.TLSServerName,
+		InsecureSkipTLSVerify:    cluster.InsecureSkipTLSVerify,
+		//CertificateAuthority:     cluster.CertificateAuthority,
+		CertificateAuthorityData: cluster.CertificateAuthorityData,
+		ProxyURL:                 cluster.ProxyURL,
+		DisableCompression:       cluster.DisableCompression,
+	}
+	// missing extensions and config? Also CertificateAuthority?
 }
