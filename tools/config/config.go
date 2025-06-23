@@ -1,9 +1,12 @@
 package config
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 
 	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"k8s.io/client-go/plugin/pkg/client/auth/exec"
@@ -14,18 +17,41 @@ import (
 )
 
 type Provider struct {
-	Name string
-	ExecConfig *clientcmdapi.ExecConfig
+	Name string `json:"name"`
+	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
 type CredentialsProvider struct {
-	providers []Provider
+	Providers []Provider `json:"providers"`
 }
 
 func New(providers []Provider) *CredentialsProvider {
 	return &CredentialsProvider{
-		providers: providers,
+		Providers: providers,
 	}
+}
+
+// SetupProviderFileFlag defines the -clusterprofile-provider-file command-line flag and returns a pointer
+// to the string that will hold the path. flag.Parse() must still be called manually by the caller
+func SetupProviderFileFlag() *string {
+	return flag.String("clusterprofile-provider-file", "clusterprofile-provider-file.json", "Path to the JSON configuration file")
+}
+
+func NewFromFile(path string) (*CredentialsProvider, error) {
+	// 1. Read the file's content
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// 2. Create a new Providers instance and unmarshal the data into it
+	var providers CredentialsProvider
+	if err := json.Unmarshal(data, &providers); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal credential proviers: %w", err)
+	}
+
+	// 3. Return the populated config
+	return &providers, nil
 }
 
 func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile)(*rest.Config, error) {
@@ -68,7 +94,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 }
 
 func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) (*clientcmdapi.ExecConfig) {
-	for _, provider := range cp.providers {
+	for _, provider := range cp.Providers {
 		if provider.Name == providerName {
 			return provider.ExecConfig
 		}
@@ -85,7 +111,7 @@ func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.C
 	}
 
 	// we return the first provider that the CP supports.
-	for _, providerType := range(cp.providers) {
+	for _, providerType := range(cp.Providers) {
 		if provider, found := cpProviderTypes[providerType.Name]; found {
 			return provider
 		}
@@ -103,5 +129,6 @@ func convertCluster(cluster clientcmdv1.Cluster) *clientauthentication.Cluster {
 		ProxyURL:                 cluster.ProxyURL,
 		DisableCompression:       cluster.DisableCompression,
 	}
-	// missing extensions and config? Also CertificateAuthority?
+	// Certificate Authority is a file path, so it doesn't apply to us.
+	// Extensions is unclear on how we could use it and is not relevant at the moment.
 }
