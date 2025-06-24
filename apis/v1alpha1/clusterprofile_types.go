@@ -77,7 +77,7 @@ type ClusterProfileStatus struct {
 }
 
 type CredentialProvider struct {
-	Name   string         			`json:"name"`
+	Name    string              `json:"name"`
 	Cluster clientcmdv1.Cluster `json:"cluster,omitempty"`
 }
 

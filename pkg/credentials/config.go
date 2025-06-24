@@ -1,4 +1,4 @@
-package config
+package credentials
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ import (
 )
 
 type Provider struct {
-	Name string `json:"name"`
+	Name       string                   `json:"name"`
 	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
 }
 
@@ -41,7 +41,7 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 	// 1. Read the file's content
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read credentials file: %w", err)
 	}
 
 	// 2. Create a new Providers instance and unmarshal the data into it
@@ -50,11 +50,11 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 		return nil, fmt.Errorf("failed to unmarshal credential proviers: %w", err)
 	}
 
-	// 3. Return the populated config
+	// 3. Return the populated credentials
 	return &providers, nil
 }
 
-func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile)(*rest.Config, error) {
+func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
 	// 1. obtain the correct provider from the CP
 	provider := cp.getProviderFromClusterProfile(clusterprofile)
 	if provider == nil {
@@ -65,7 +65,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	// 2. Get Exec Config
 	execConfig := cp.getExecConfigFromConfig(provider.Name)
 	if execConfig == nil {
-		return nil, fmt.Errorf("no exec config found for provider %q", provider.Name)
+		return nil, fmt.Errorf("no exec credentials found for provider %q", provider.Name)
 	}
 
 	// 2. call exec
@@ -93,7 +93,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	return config, nil
 }
 
-func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) (*clientcmdapi.ExecConfig) {
+func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) *clientcmdapi.ExecConfig {
 	for _, provider := range cp.Providers {
 		if provider.Name == providerName {
 			return provider.ExecConfig
@@ -111,7 +111,7 @@ func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.C
 	}
 
 	// we return the first provider that the CP supports.
-	for _, providerType := range(cp.Providers) {
+	for _, providerType := range cp.Providers {
 		if provider, found := cpProviderTypes[providerType.Name]; found {
 			return provider
 		}
@@ -121,9 +121,9 @@ func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.C
 
 func convertCluster(cluster clientcmdv1.Cluster) *clientauthentication.Cluster {
 	return &clientauthentication.Cluster{
-		Server:                   cluster.Server,
-		TLSServerName:            cluster.TLSServerName,
-		InsecureSkipTLSVerify:    cluster.InsecureSkipTLSVerify,
+		Server:                cluster.Server,
+		TLSServerName:         cluster.TLSServerName,
+		InsecureSkipTLSVerify: cluster.InsecureSkipTLSVerify,
 		//CertificateAuthority:     cluster.CertificateAuthority,
 		CertificateAuthorityData: cluster.CertificateAuthorityData,
 		ProxyURL:                 cluster.ProxyURL,
