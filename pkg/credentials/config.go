@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"k8s.io/client-go/pkg/apis/clientauthentication"
-	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
@@ -68,12 +67,6 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 		return nil, fmt.Errorf("no exec credentials found for provider %q", provider.Name)
 	}
 
-	// 2. call exec
-	a, err := exec.GetAuthenticator(execConfig, cluster)
-	if err != nil {
-		return nil, err
-	}
-
 	// 3. build resulting rest.Config
 	config := &rest.Config{
 		Host: cluster.Server,
@@ -81,13 +74,20 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 			CAData: cluster.CertificateAuthorityData,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
+			if cluster.ProxyURL == "" {
+				return nil, nil
+			}
 			return url.Parse(cluster.ProxyURL)
 		},
 	}
 
-	transportConfig, err := config.TransportConfig()
-	if err := a.UpdateTransportConfig(transportConfig); err != nil {
-		return nil, err
+	config.ExecProvider = &clientcmdapi.ExecConfig{
+		APIVersion:         execConfig.APIVersion,
+		Command:            execConfig.Command,
+		Args:               execConfig.Args,
+		Env:                execConfig.Env,
+		InteractiveMode:    "Never",
+		ProvideClusterInfo: execConfig.ProvideClusterInfo,
 	}
 
 	return config, nil

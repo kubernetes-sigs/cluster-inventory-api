@@ -72,7 +72,8 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 	ginkgo.AfterEach(func() {
 		if tempDir != "" {
-			os.RemoveAll(tempDir)
+			err := os.RemoveAll(tempDir)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 		}
 	})
 
