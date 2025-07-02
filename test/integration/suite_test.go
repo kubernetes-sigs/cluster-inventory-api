@@ -18,16 +18,15 @@ package integration
 
 import (
 	"context"
-	"path/filepath"
-	"testing"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/rest"
+	"path/filepath"
+	"testing"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -36,6 +35,7 @@ import (
 
 var testEnv *envtest.Environment
 var testNamespace string
+var cfg *rest.Config
 var kubernetesClient kubernetes.Interface
 var clusterProfileClient cpclientset.Interface
 
@@ -55,7 +55,8 @@ var _ = ginkgo.BeforeSuite(func(done ginkgo.Done) {
 		},
 	}
 
-	cfg, err := testEnv.Start()
+	var err error
+	cfg, err = testEnv.Start()
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	gomega.Expect(cfg).ToNot(gomega.BeNil())
 

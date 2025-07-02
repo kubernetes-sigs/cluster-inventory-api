@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: clusterprofiles.multicluster.x-k8s.io
 spec:
   group: multicluster.x-k8s.io
@@ -66,16 +66,8 @@ spec:
                 description: Conditions contains the different condition statuses
                   for this cluster.
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -116,12 +108,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -131,6 +118,86 @@ spec:
                   - reason
                   - status
                   - type
+                  type: object
+                type: array
+              credentialProviders:
+                description: |-
+                  CredentialProviders is a list credential providers that can provide kubeconfig
+                  credential to connect to the cluster.
+                items:
+                  properties:
+                    cluster:
+                      description: Cluster contains information about how to communicate
+                        with a kubernetes cluster
+                      properties:
+                        certificate-authority:
+                          description: CertificateAuthority is the path to a cert
+                            file for the certificate authority.
+                          type: string
+                        certificate-authority-data:
+                          description: CertificateAuthorityData contains PEM-encoded
+                            certificate authority certificates. Overrides CertificateAuthority
+                          format: byte
+                          type: string
+                        disable-compression:
+                          description: |-
+                            DisableCompression allows client to opt-out of response compression for all requests to the server. This is useful
+                            to speed up requests (specifically lists) when client-server network bandwidth is ample, by saving time on
+                            compression (server-side) and decompression (client-side): https://github.com/kubernetes/kubernetes/issues/112296.
+                          type: boolean
+                        extensions:
+                          description: Extensions holds additional information. This
+                            is useful for extenders so that reads and writes don't
+                            clobber unknown fields
+                          items:
+                            description: NamedExtension relates nicknames to extension
+                              information
+                            properties:
+                              extension:
+                                description: Extension holds the extension information
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                              name:
+                                description: Name is the nickname for this Extension
+                                type: string
+                            required:
+                            - extension
+                            - name
+                            type: object
+                          type: array
+                        insecure-skip-tls-verify:
+                          description: InsecureSkipTLSVerify skips the validity check
+                            for the server's certificate. This will make your HTTPS
+                            connections insecure.
+                          type: boolean
+                        proxy-url:
+                          description: |-
+                            ProxyURL is the URL to the proxy to be used for all requests made by this
+                            client. URLs with "http", "https", and "socks5" schemes are supported.  If
+                            this configuration is not provided or the empty string, the client
+                            attempts to construct a proxy configuration from http_proxy and
+                            https_proxy environment variables. If these environment variables are not
+                            set, the client does not attempt to proxy requests.
+
+                            socks5 proxying does not currently support spdy streaming endpoints (exec,
+                            attach, port forward).
+                          type: string
+                        server:
+                          description: Server is the address of the kubernetes cluster
+                            (https://hostname:port).
+                          type: string
+                        tls-server-name:
+                          description: TLSServerName is used to check server certificate.
+                            If TLSServerName is empty, the hostname used to contact
+                            the server is used.
+                          type: string
+                      required:
+                      - server
+                      type: object
+                    name:
+                      type: string
+                  required:
+                  - name
                   type: object
                 type: array
               properties:

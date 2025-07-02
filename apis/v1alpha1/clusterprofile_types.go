@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 )
 
 // ClusterProfileSpec defines the desired state of ClusterProfile.
@@ -69,6 +70,15 @@ type ClusterProfileStatus struct {
 	// - Custom names defined by cluster managers
 	// +optional
 	Properties []Property `json:"properties,omitempty"`
+
+	// CredentialProviders is a list credential providers that can provide kubeconfig
+	// credential to connect to the cluster.
+	CredentialProviders []CredentialProvider `json:"credentialProviders,omitempty"`
+}
+
+type CredentialProvider struct {
+	Name    string              `json:"name"`
+	Cluster clientcmdv1.Cluster `json:"cluster,omitempty"`
 }
 
 // ClusterVersion represents version information about the cluster.
