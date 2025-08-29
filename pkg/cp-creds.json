@@ -1,11 +1,11 @@
 {
   "providers": [
     {
-      "name": "gkeFleet",
+      "name": "eks",
       "execConfig": {
           "apiVersion": "client.authentication.k8s.io/v1beta1",
           "args": null,
-          "command": "gke-gcloud-auth-plugin",
+          "command": "./eks-aws-auth-plugin.sh",
           "env": null,
           "provideClusterInfo": true
       }
