@@ -8,10 +8,8 @@ import (
 	"net/url"
 	"os"
 
-	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
@@ -59,7 +57,6 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	if provider == nil {
 		return nil, fmt.Errorf("no matching provider found for cluster profile %q", clusterprofile.Name)
 	}
-	cluster := convertCluster(provider.Cluster)
 
 	// 2. Get Exec Config
 	execConfig := cp.getExecConfigFromConfig(provider.Name)
@@ -69,15 +66,15 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 
 	// 3. build resulting rest.Config
 	config := &rest.Config{
-		Host: cluster.Server,
+		Host: provider.Cluster.Server,
 		TLSClientConfig: rest.TLSClientConfig{
-			CAData: cluster.CertificateAuthorityData,
+			CAData: provider.Cluster.CertificateAuthorityData,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
-			if cluster.ProxyURL == "" {
+			if provider.Cluster.ProxyURL == "" {
 				return nil, nil
 			}
-			return url.Parse(cluster.ProxyURL)
+			return url.Parse(provider.Cluster.ProxyURL)
 		},
 	}
 
@@ -117,18 +114,4 @@ func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.C
 		}
 	}
 	return nil
-}
-
-func convertCluster(cluster clientcmdv1.Cluster) *clientauthentication.Cluster {
-	return &clientauthentication.Cluster{
-		Server:                cluster.Server,
-		TLSServerName:         cluster.TLSServerName,
-		InsecureSkipTLSVerify: cluster.InsecureSkipTLSVerify,
-		//CertificateAuthority:     cluster.CertificateAuthority,
-		CertificateAuthorityData: cluster.CertificateAuthorityData,
-		ProxyURL:                 cluster.ProxyURL,
-		DisableCompression:       cluster.DisableCompression,
-	}
-	// Certificate Authority is a file path, so it doesn't apply to us.
-	// Extensions is unclear on how we could use it and is not relevant at the moment.
 }
