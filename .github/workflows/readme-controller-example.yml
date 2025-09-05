@@ -1,0 +1,66 @@
+name: Validate controller example in README
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readme-controller-example-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-controller-example:
+    name: Run README controller example
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup kind (install only)
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - name: Tool versions
+        run: |
+          kind version
+          kubectl version --client=true --output=yaml
+          go version
+
+      - name: Run setup script (create clusters, secrets, and ClusterProfile)
+        run: |
+          bash ./examples/controller-example/setup-kind-demo.sh
+
+      - name: Build Secret Reader plugin
+        run: |
+          go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
+
+      - name: Build controller example
+        run: |
+          go build -o ./examples/controller-example/controller-example.bin ./examples/controller-example
+
+      - name: Execute controller example
+        env:
+          KUBECONFIG: ./examples/controller-example/hub.kubeconfig
+        run: |
+          ./examples/controller-example/controller-example.bin \
+            -clusterprofile-provider-file ./examples/controller-example/cp-creds.json \
+            -namespace default \
+            -clusterprofile spoke-1
+
+      - name: Cleanup kind clusters
+        if: always()
+        run: |
+          bash ./examples/controller-example/down.sh
+
