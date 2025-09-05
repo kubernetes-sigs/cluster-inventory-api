@@ -61,7 +61,7 @@ go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
 ```
 
 ## Usage in a controller
-
+Use the following provider config to exec the secret-reader plugin.
 ```jsonc
 {
   "providers": [
