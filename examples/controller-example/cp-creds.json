@@ -1,11 +1,11 @@
 {
   "providers": [
     {
-      "name": "gkeFleet",
+      "name": "secretreader",
       "execConfig": {
           "apiVersion": "client.authentication.k8s.io/v1beta1",
           "args": null,
-          "command": "gke-gcloud-auth-plugin",
+          "command": "./bin/secretreader-plugin",
           "env": null,
           "provideClusterInfo": true
       }

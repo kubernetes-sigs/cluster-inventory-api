@@ -27,7 +27,7 @@ func main() {
 		Status: v1alpha1.ClusterProfileStatus{
 			CredentialProviders: []v1alpha1.CredentialProvider{
 				{
-					Name: "gkeFleet",
+					Name: "secretreader",
 					Cluster: clientcmdv1.Cluster{
 						Server: "https://myserver.tld:443",
 					},
