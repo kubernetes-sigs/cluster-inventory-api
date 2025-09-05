@@ -60,7 +60,7 @@ roleRef:
 go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
 ```
 
-## Usage
+## Usage in a controller
 
 ```jsonc
 {
