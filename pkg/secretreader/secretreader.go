@@ -51,6 +51,9 @@ func NewDefault() (*Provider, error) {
 
 const ProviderName = "secretreader"
 
+// SecretTokenKey is the `Secret.data` key.
+const SecretTokenKey = "token"
+
 func (Provider) Name() string { return ProviderName }
 
 func (p Provider) GetTokenJSON(ctx context.Context, info *clientauthv1beta1.ExecCredential) ([]byte, error) {
@@ -106,9 +109,9 @@ func (p Provider) GetTokenJSON(ctx context.Context, info *clientauthv1beta1.Exec
     if err := runtime.DefaultUnstructuredConverter.FromUnstructured(secU.Object, &sec); err != nil {
         return nil, fmt.Errorf("failed to convert secret %s/%s: %w", namespace, clusterName, err)
     }
-    data, ok := sec.Data["token"]
+    data, ok := sec.Data[SecretTokenKey]
     if !ok || len(data) == 0 {
-        return nil, fmt.Errorf("secret %s/%s missing token key", namespace, clusterName)
+        return nil, fmt.Errorf("secret %s/%s missing %q key", namespace, clusterName, SecretTokenKey)
     }
 
     return credentialplugin.BuildExecCredentialJSON(string(data), metav1.Time{}.Time)
