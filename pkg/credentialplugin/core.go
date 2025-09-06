@@ -12,6 +12,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
+	authexec "k8s.io/client-go/tools/auth/exec"
 )
 
 // Utilities
@@ -21,18 +22,18 @@ func errPrintf(plugin string, format string, a ...any) {
 
 // readExecInfo reads ExecCredential from KUBERNETES_EXEC_INFO
 func readExecInfo() (*clientauthenticationv1.ExecCredential, error) {
-	val := os.Getenv("KUBERNETES_EXEC_INFO")
-	if strings.TrimSpace(val) == "" {
-		return nil, errors.New("KUBERNETES_EXEC_INFO is empty. set provideClusterInfo: true")
+	obj, _, err := authexec.LoadExecCredentialFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read KUBERNETES_EXEC_INFO: %w", err)
 	}
-	var info clientauthenticationv1.ExecCredential
-	if err := json.Unmarshal([]byte(val), &info); err != nil {
-		return nil, fmt.Errorf("failed to parse KUBERNETES_EXEC_INFO: %w", err)
+	ec, ok := obj.(*clientauthenticationv1.ExecCredential)
+	if !ok {
+		return nil, fmt.Errorf("unexpected ExecCredential type (expect v1), got %T", obj)
 	}
-	if info.Spec.Cluster == nil || strings.TrimSpace(info.Spec.Cluster.Server) == "" || info.Spec.Cluster.Server == "null" {
+	if ec.Spec.Cluster == nil || strings.TrimSpace(ec.Spec.Cluster.Server) == "" || ec.Spec.Cluster.Server == "null" {
 		return nil, errors.New("spec.cluster.server is missing in KUBERNETES_EXEC_INFO")
 	}
-	return &info, nil
+	return ec, nil
 }
 
 // Provider defines the common interface for all credential plugins
