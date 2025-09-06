@@ -38,7 +38,7 @@ func readExecInfo() (*clientauthv1beta1.ExecCredential, error) {
 // Provider defines the common interface for all credential plugins
 type Provider interface {
 	Name() string
-	GetTokenJSON(ctx context.Context, in *clientauthv1beta1.ExecCredential) ([]byte, error)
+	GetToken(ctx context.Context, in clientauthv1beta1.ExecCredential) (clientauthv1beta1.ExecCredentialStatus, error)
 }
 
 // Run is the common entrypoint used by all provider-specific binaries
@@ -55,9 +55,23 @@ func Run(p Provider) {
 		os.Exit(1)
 	}
 
-	b, err := p.GetTokenJSON(context.Background(), info)
+	status, err := p.GetToken(context.Background(), *info)
 	if err != nil {
 		errPrintf(plugin, "%v", err)
+		os.Exit(1)
+	}
+
+	// Build ExecCredential JSON from returned status
+	ec := &clientauthv1beta1.ExecCredential{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: clientauthv1beta1.SchemeGroupVersion.Identifier(),
+			Kind:       "ExecCredential",
+		},
+		Status: &status,
+	}
+	b, err := json.Marshal(ec)
+	if err != nil {
+		errPrintf(plugin, "failed to marshal ExecCredential: %v", err)
 		os.Exit(1)
 	}
 
