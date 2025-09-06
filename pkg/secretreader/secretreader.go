@@ -60,7 +60,7 @@ func (p Provider) GetTokenJSON(ctx context.Context, info *clientauthv1beta1.Exec
     }
 
     // Determine namespace: prefer injected Namespace, then kubeconfig current-context (fallback to "default").
-    namespace := strings.TrimSpace(p.Namespace)
+    namespace := p.Namespace
     if namespace == "" {
         namespace = inferNamespace()
     }
