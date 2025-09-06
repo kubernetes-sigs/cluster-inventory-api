@@ -16,7 +16,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	v1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	clusterinventoryapisclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentialplugin"
 )
 
 type Provider struct {
@@ -59,10 +58,10 @@ const SecretTokenKey = "token"
 
 func (Provider) Name() string { return ProviderName }
 
-func (p Provider) GetTokenJSON(ctx context.Context, info *clientauthv1beta1.ExecCredential) ([]byte, error) {
+func (p Provider) GetToken(ctx context.Context, info clientauthv1beta1.ExecCredential) (clientauthv1beta1.ExecCredentialStatus, error) {
 	// Require pre-initialized typed clients
 	if p.ClusterInventoryAPIClient == nil || p.KubeClient == nil {
-		return nil, errors.New("provider clients are not initialized; construct with NewDefault or set clients")
+		return clientauthv1beta1.ExecCredentialStatus{}, errors.New("provider clients are not initialized; construct with NewDefault or set clients")
 	}
 
 	// Determine namespace: prefer injected Namespace, then kubeconfig current-context (fallback to "default").
@@ -74,30 +73,30 @@ func (p Provider) GetTokenJSON(ctx context.Context, info *clientauthv1beta1.Exec
 	// Normalize incoming server for matching
 	normIn, err := normalizeHost(info.Spec.Cluster.Server)
 	if err != nil {
-		return nil, err
+		return clientauthv1beta1.ExecCredentialStatus{}, err
 	}
 
 	// Discover ClusterProfile that matches server only (all namespaces)
 	cps, err := p.ClusterInventoryAPIClient.ApisV1alpha1().ClusterProfiles(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list ClusterProfiles: %w", err)
+		return clientauthv1beta1.ExecCredentialStatus{}, fmt.Errorf("failed to list ClusterProfiles: %w", err)
 	}
 	clusterName := pickClusterProfileName(cps, ProviderName, normIn, info.Spec.Cluster.CertificateAuthorityData)
 	if clusterName == "" {
-		return nil, fmt.Errorf("no matching ClusterProfile for endpoint: %s", info.Spec.Cluster.Server)
+		return clientauthv1beta1.ExecCredentialStatus{}, fmt.Errorf("no matching ClusterProfile for endpoint: %s", info.Spec.Cluster.Server)
 	}
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token
 	sec, err := p.KubeClient.CoreV1().Secrets(namespace).Get(ctx, clusterName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get secret %s/%s: %w", namespace, clusterName, err)
+		return clientauthv1beta1.ExecCredentialStatus{}, fmt.Errorf("failed to get secret %s/%s: %w", namespace, clusterName, err)
 	}
 	data, ok := sec.Data[SecretTokenKey]
 	if !ok || len(data) == 0 {
-		return nil, fmt.Errorf("secret %s/%s missing %q key", namespace, clusterName, SecretTokenKey)
+		return clientauthv1beta1.ExecCredentialStatus{}, fmt.Errorf("secret %s/%s missing %q key", namespace, clusterName, SecretTokenKey)
 	}
 
-	return credentialplugin.BuildExecCredentialJSON(string(data), metav1.Time{}.Time)
+	return clientauthv1beta1.ExecCredentialStatus{Token: string(data)}, nil
 }
 
 // normalizeHost converts a URL like https://example.com:443/ to example.com
