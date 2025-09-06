@@ -11,7 +11,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientauthv1beta1 "k8s.io/client-go/pkg/apis/clientauthentication/v1beta1"
+	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 )
 
 // Utilities
@@ -20,12 +20,12 @@ func errPrintf(plugin string, format string, a ...any) {
 }
 
 // readExecInfo reads ExecCredential from KUBERNETES_EXEC_INFO
-func readExecInfo() (*clientauthv1beta1.ExecCredential, error) {
+func readExecInfo() (*clientauthenticationv1.ExecCredential, error) {
 	val := os.Getenv("KUBERNETES_EXEC_INFO")
 	if strings.TrimSpace(val) == "" {
 		return nil, errors.New("KUBERNETES_EXEC_INFO is empty. set provideClusterInfo: true")
 	}
-	var info clientauthv1beta1.ExecCredential
+	var info clientauthenticationv1.ExecCredential
 	if err := json.Unmarshal([]byte(val), &info); err != nil {
 		return nil, fmt.Errorf("failed to parse KUBERNETES_EXEC_INFO: %w", err)
 	}
@@ -38,7 +38,7 @@ func readExecInfo() (*clientauthv1beta1.ExecCredential, error) {
 // Provider defines the common interface for all credential plugins
 type Provider interface {
 	Name() string
-	GetToken(ctx context.Context, in clientauthv1beta1.ExecCredential) (clientauthv1beta1.ExecCredentialStatus, error)
+	GetToken(ctx context.Context, in clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error)
 }
 
 // Run is the common entrypoint used by all provider-specific binaries
@@ -62,9 +62,9 @@ func Run(p Provider) {
 	}
 
 	// Build ExecCredential JSON from returned status
-	ec := &clientauthv1beta1.ExecCredential{
+	ec := &clientauthenticationv1.ExecCredential{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: clientauthv1beta1.SchemeGroupVersion.Identifier(),
+			APIVersion: clientauthenticationv1.SchemeGroupVersion.Identifier(),
 			Kind:       "ExecCredential",
 		},
 		Status: &status,
@@ -83,12 +83,12 @@ func Run(p Provider) {
 
 // BuildExecCredentialJSON constructs a minimal ExecCredential JSON
 func BuildExecCredentialJSON(token string, expiration time.Time) ([]byte, error) {
-	ec := &clientauthv1beta1.ExecCredential{
+	ec := &clientauthenticationv1.ExecCredential{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: clientauthv1beta1.SchemeGroupVersion.Identifier(),
+			APIVersion: clientauthenticationv1.SchemeGroupVersion.Identifier(),
 			Kind:       "ExecCredential",
 		},
-		Status: &clientauthv1beta1.ExecCredentialStatus{
+		Status: &clientauthenticationv1.ExecCredentialStatus{
 			Token: token,
 		},
 	}

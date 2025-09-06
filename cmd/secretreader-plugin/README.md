@@ -68,7 +68,7 @@ Use the following provider config to exec the secret-reader plugin.
     {
       "name": "secretreader",
       "execConfig": {
-        "apiVersion": "client.authentication.k8s.io/v1beta1",
+        "apiVersion": "client.authentication.k8s.io/v1",
         "command": "./bin/secretreader-plugin",
         "provideClusterInfo": true
       }
