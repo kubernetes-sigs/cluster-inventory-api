@@ -13,6 +13,13 @@ REPO_ROOT=$(cd "${SCRIPT_DIR}/../.." && pwd)
 
 echo "[1/9] Create spoke cluster"
 kind create cluster --name "spoke"
+# Wait for default ServiceAccount to be created in the default namespace on the spoke cluster
+for i in {1..60}; do
+  if kubectl --context "kind-spoke" -n default get sa default >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
 
 echo "[2/9] Create ServiceAccount, RBAC and token Secret on spoke cluster"
 kubectl --context "kind-spoke" apply -f - <<EOF
@@ -53,8 +60,6 @@ metadata:
     kubernetes.io/service-account.name: spoke-reader
 type: kubernetes.io/service-account-token
 EOF
-
-sleep 5
 
 echo "[3/9] Create a sleep Pod on spoke cluster"
 kubectl --context "kind-spoke" apply -f - <<EOF
@@ -117,5 +122,31 @@ spec:
     name: demo
 EOF
 
-kubectl --context "kind-hub" patch clusterprofile "spoke-1" --type=merge \
-  --subresource=status -p "{\"status\":{\"credentialProviders\":[{\"name\":\"secretreader\",\"cluster\":{\"server\":\"${SERVER}\",\"certificate-authority-data\":\"${CADATA}\"}}]}}"
+STATUS_PATCH=$(cat <<EOF
+{
+  "status": {
+    "credentialProviders": [
+      {
+        "name": "secretreader",
+        "cluster": {
+          "server": "${SERVER}",
+          "certificate-authority-data": "${CADATA}",
+          "extensions": [
+            {
+              "name": "client.authentication.k8s.io/exec",
+              "extension": {
+                "clusterProfile": {
+                  "name": "spoke-1"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+EOF
+)
+
+kubectl --context "kind-hub" patch clusterprofile "spoke-1" --type=merge --subresource=status -p "${STATUS_PATCH}"

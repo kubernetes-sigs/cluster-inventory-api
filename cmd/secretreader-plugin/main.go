@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 
@@ -14,7 +13,6 @@ import (
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	v1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	clusterinventoryapisclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentialplugin"
 )
@@ -72,20 +70,23 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 		namespace = inferNamespace()
 	}
 
-	// Normalize incoming server for matching
-	normIn, err := normalizeHost(info.Spec.Cluster.Server)
-	if err != nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, err
+	// Require clusterProfile.name to be present in extensions config
+	type execClusterConfig struct {
+		ClusterProfile struct {
+			Name string `json:"name"`
+		} `json:"clusterProfile"`
 	}
-
-	// Discover ClusterProfile that matches server only (all namespaces)
-	cps, err := p.ClusterInventoryAPIClient.ApisV1alpha1().ClusterProfiles(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("failed to list ClusterProfiles: %w", err)
+	var clusterName string
+	if info.Spec.Cluster != nil && len(info.Spec.Cluster.Config.Raw) > 0 {
+		var cfg execClusterConfig
+		if err := json.Unmarshal(info.Spec.Cluster.Config.Raw, &cfg); err == nil {
+			if n := cfg.ClusterProfile.Name; n != "" {
+				clusterName = n
+			}
+		}
 	}
-	clusterName := pickClusterProfileName(cps, ProviderName, normIn, info.Spec.Cluster.CertificateAuthorityData)
 	if clusterName == "" {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("no matching ClusterProfile for endpoint: %s", info.Spec.Cluster.Server)
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing clusterProfile.name in ExecCredential.Spec.Cluster.Config")
 	}
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token
@@ -101,25 +102,6 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 	return clientauthenticationv1.ExecCredentialStatus{Token: string(data)}, nil
 }
 
-// normalizeHost converts a URL like https://example.com:443/ to example.com
-func normalizeHost(raw string) (string, error) {
-	if raw == "" {
-		return "", errors.New("empty host")
-	}
-	// Strip scheme if present
-	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
-		u, err := url.Parse(raw)
-		if err == nil {
-			raw = u.Host + u.Path
-		}
-	}
-	// Drop trailing slash
-	raw = strings.TrimSuffix(raw, "/")
-	// Drop :443 suffix if present
-	raw = strings.TrimSuffix(raw, ":443")
-	return raw, nil
-}
-
 // inferNamespace determines the namespace to read Secrets from, preferring kubeconfig current-context
 func inferNamespace() string {
 	// kubeconfig current-context namespace
@@ -133,37 +115,6 @@ func inferNamespace() string {
 	}
 	// in-cluster kubeconfig is unavailable; library returns default namespace
 	return "default"
-}
-
-// pickClusterProfileName returns the first ClusterProfile name
-// whose provider name matches and whose cluster {server, CA} matches the input.
-//   - server: matched by normalizeHost equality
-//   - CA: if inputCA is provided (len>0), require byte-equal with provider.Cluster.CertificateAuthorityData
-//     if inputCA is empty, skip CA check
-func pickClusterProfileName(list *v1alpha1.ClusterProfileList, providerName string, normalizedServer string, inputCA []byte) string {
-	providerName = strings.TrimSpace(providerName)
-	if list == nil || providerName == "" || normalizedServer == "" {
-		return ""
-	}
-	for i := range list.Items {
-		cp := &list.Items[i]
-		for _, pr := range cp.Status.CredentialProviders {
-			if strings.TrimSpace(pr.Name) != providerName {
-				continue
-			}
-			normCp, err := normalizeHost(strings.TrimSpace(pr.Cluster.Server))
-			if err != nil || normCp != normalizedServer {
-				continue
-			}
-			if len(inputCA) > 0 {
-				if !bytes.Equal(pr.Cluster.CertificateAuthorityData, inputCA) {
-					continue
-				}
-			}
-			return cp.GetName()
-		}
-	}
-	return ""
 }
 
 func main() {

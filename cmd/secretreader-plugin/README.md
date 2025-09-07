@@ -4,31 +4,9 @@ When executed by a controller, this plugin reads the `token` from the Kubernetes
 
 The specification follows the Secret Reader plugin KEP.
 
-## Required RBAC (example)
+## Required RBAC
 
 ```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: secretreader-clusterprofiles
-rules:
-- apiGroups: ["multicluster.x-k8s.io"]
-  resources: ["clusterprofiles"]
-  verbs: ["list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: secretreader-clusterprofiles
-subjects:
-- kind: ServiceAccount
-  name: <CONSUMER_SERVICE_ACCOUNT_NAME>
-  namespace: <CONSUMER_NAMESPACE>
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: secretreader-clusterprofiles
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -61,7 +39,9 @@ go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
 ```
 
 ## Usage in a controller
+
 Use the following provider config to exec the secret-reader plugin.
+
 ```jsonc
 {
   "providers": [
