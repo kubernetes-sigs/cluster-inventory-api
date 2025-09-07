@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
@@ -85,6 +86,14 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 		Env:                execConfig.Env,
 		InteractiveMode:    "Never",
 		ProvideClusterInfo: execConfig.ProvideClusterInfo,
+	}
+
+	// Propagate reserved extension into ExecCredential.Spec.Cluster.Config if present
+	for _, ext := range provider.Cluster.Extensions {
+		if ext.Name == "client.authentication.k8s.io/exec" && len(ext.Extension.Raw) > 0 {
+			config.ExecProvider.Config = &runtime.Unknown{Raw: ext.Extension.Raw}
+			break
+		}
 	}
 
 	return config, nil
