@@ -70,23 +70,21 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 		namespace = inferNamespace()
 	}
 
-	// Require clusterProfile.name to be present in extensions config
+	// Require clusterName to be present in extensions config
 	type execClusterConfig struct {
-		ClusterProfile struct {
-			Name string `json:"name"`
-		} `json:"clusterProfile"`
+		ClusterName string `json:"clusterName"`
 	}
 	var clusterName string
 	if info.Spec.Cluster != nil && len(info.Spec.Cluster.Config.Raw) > 0 {
 		var cfg execClusterConfig
 		if err := json.Unmarshal(info.Spec.Cluster.Config.Raw, &cfg); err == nil {
-			if n := cfg.ClusterProfile.Name; n != "" {
+			if n := cfg.ClusterName; n != "" {
 				clusterName = n
 			}
 		}
 	}
 	if clusterName == "" {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing clusterProfile.name in ExecCredential.Spec.Cluster.Config")
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing clusterName in ExecCredential.Spec.Cluster.Config")
 	}
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token

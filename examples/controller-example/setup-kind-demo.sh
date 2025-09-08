@@ -135,9 +135,7 @@ STATUS_PATCH=$(cat <<EOF
             {
               "name": "client.authentication.k8s.io/exec",
               "extension": {
-                "clusterProfile": {
-                  "name": "spoke-1"
-                }
+                "clusterName": "spoke-1"
               }
             }
           ]
