@@ -13,13 +13,10 @@ import (
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	clusterinventoryapisclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentialplugin"
 )
 
 type Provider struct {
-	// ClusterInventoryAPIClient is the typed client for ClusterProfile API group.
-	ClusterInventoryAPIClient clusterinventoryapisclient.Interface
 	// KubeClient is the typed client for core Kubernetes resources (e.g. Secret).
 	KubeClient kubernetes.Interface
 	// Namespace, if set, overrides namespace inference.
@@ -38,16 +35,12 @@ func NewDefault() (*Provider, error) {
 		}
 	}
 
-	apiClient, err := clusterinventoryapisclient.NewForConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create apis clientset: %w", err)
-	}
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
-	return &Provider{ClusterInventoryAPIClient: apiClient, KubeClient: kubeClient, Namespace: inferNamespace()}, nil
+	return &Provider{KubeClient: kubeClient, Namespace: inferNamespace()}, nil
 }
 
 // ProviderName is the name of the credential provider.
@@ -60,7 +53,7 @@ func (Provider) Name() string { return ProviderName }
 
 func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error) {
 	// Require pre-initialized typed clients
-	if p.ClusterInventoryAPIClient == nil || p.KubeClient == nil {
+	if p.KubeClient == nil {
 		return clientauthenticationv1.ExecCredentialStatus{}, errors.New("provider clients are not initialized; construct with NewDefault or set clients")
 	}
 
