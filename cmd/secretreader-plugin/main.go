@@ -61,18 +61,18 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 	type execClusterConfig struct {
 		ClusterName string `json:"clusterName"`
 	}
-	var clusterName string
-	if info.Spec.Cluster != nil && len(info.Spec.Cluster.Config.Raw) > 0 {
-		var cfg execClusterConfig
-		if err := json.Unmarshal(info.Spec.Cluster.Config.Raw, &cfg); err == nil {
-			if n := cfg.ClusterName; n != "" {
-				clusterName = n
-			}
-		}
+	// Validate presence of cluster config
+	if info.Spec.Cluster == nil || len(info.Spec.Cluster.Config.Raw) == 0 {
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing ExecCredential.Spec.Cluster.Config")
 	}
-	if clusterName == "" {
+	var cfg execClusterConfig
+	if err := json.Unmarshal(info.Spec.Cluster.Config.Raw, &cfg); err != nil {
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("invalid ExecCredential.Spec.Cluster.Config: %w", err)
+	}
+	if cfg.ClusterName == "" {
 		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing clusterName in ExecCredential.Spec.Cluster.Config")
 	}
+	clusterName := cfg.ClusterName
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token
 	sec, err := p.KubeClient.CoreV1().Secrets(p.Namespace).Get(ctx, clusterName, metav1.GetOptions{})
