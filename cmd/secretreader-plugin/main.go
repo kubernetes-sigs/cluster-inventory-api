@@ -57,12 +57,6 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 		return clientauthenticationv1.ExecCredentialStatus{}, errors.New("provider clients are not initialized; construct with NewDefault or set clients")
 	}
 
-	// Determine namespace: prefer injected Namespace, then kubeconfig current-context (fallback to "default").
-	namespace := p.Namespace
-	if namespace == "" {
-		namespace = inferNamespace()
-	}
-
 	// Require clusterName to be present in extensions config
 	type execClusterConfig struct {
 		ClusterName string `json:"clusterName"`
@@ -81,13 +75,13 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 	}
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token
-	sec, err := p.KubeClient.CoreV1().Secrets(namespace).Get(ctx, clusterName, metav1.GetOptions{})
+	sec, err := p.KubeClient.CoreV1().Secrets(p.Namespace).Get(ctx, clusterName, metav1.GetOptions{})
 	if err != nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("failed to get secret %s/%s: %w", namespace, clusterName, err)
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("failed to get secret %s/%s: %w", p.Namespace, clusterName, err)
 	}
 	data, ok := sec.Data[SecretTokenKey]
 	if !ok || len(data) == 0 {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("secret %s/%s missing %q key", namespace, clusterName, SecretTokenKey)
+		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("secret %s/%s missing %q key", p.Namespace, clusterName, SecretTokenKey)
 	}
 
 	return clientauthenticationv1.ExecCredentialStatus{Token: string(data)}, nil
