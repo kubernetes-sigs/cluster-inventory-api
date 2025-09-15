@@ -25,7 +25,7 @@ func main() {
 			DisplayName: "My Cluster",
 		},
 		Status: v1alpha1.ClusterProfileStatus{
-			CredentialProviders: []v1alpha1.CredentialProvider{
+			ClusterAccessProviders: []v1alpha1.ClusterAccessProvider{
 				{
 					Name: "gkeFleet",
 					Cluster: clientcmdv1.Cluster{

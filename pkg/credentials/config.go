@@ -52,29 +52,29 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 }
 
 func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
-	// 1. obtain the correct provider from the CP
-	provider := cp.getProviderFromClusterProfile(clusterprofile)
-	if provider == nil {
-		return nil, fmt.Errorf("no matching provider found for cluster profile %q", clusterprofile.Name)
+	// 1. obtain the correct clusterAccesser from the CP
+	clusterAccesser := cp.getClusterAccessFromClusterProfile(clusterprofile)
+	if clusterAccesser == nil {
+		return nil, fmt.Errorf("no matching cluster accesser found for cluster profile %q", clusterprofile.Name)
 	}
 
 	// 2. Get Exec Config
-	execConfig := cp.getExecConfigFromConfig(provider.Name)
+	execConfig := cp.getExecConfigFromConfig(clusterAccesser.Name)
 	if execConfig == nil {
-		return nil, fmt.Errorf("no exec credentials found for provider %q", provider.Name)
+		return nil, fmt.Errorf("no exec credentials found for provider %q", clusterAccesser.Name)
 	}
 
 	// 3. build resulting rest.Config
 	config := &rest.Config{
-		Host: provider.Cluster.Server,
+		Host: clusterAccesser.Cluster.Server,
 		TLSClientConfig: rest.TLSClientConfig{
-			CAData: provider.Cluster.CertificateAuthorityData,
+			CAData: clusterAccesser.Cluster.CertificateAuthorityData,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
-			if provider.Cluster.ProxyURL == "" {
+			if clusterAccesser.Cluster.ProxyURL == "" {
 				return nil, nil
 			}
-			return url.Parse(provider.Cluster.ProxyURL)
+			return url.Parse(clusterAccesser.Cluster.ProxyURL)
 		},
 	}
 
@@ -99,18 +99,18 @@ func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) *cli
 	return nil
 }
 
-func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.CredentialProvider {
-	cpProviderTypes := map[string]*v1alpha1.CredentialProvider{}
+func (cp *CredentialsProvider) getClusterAccessFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.ClusterAccessProvider {
+	caProviderTypes := map[string]*v1alpha1.ClusterAccessProvider{}
 
-	for _, provider := range cluster.Status.CredentialProviders {
+	for _, provider := range cluster.Status.ClusterAccessProviders {
 		newProvider := provider.DeepCopy()
-		cpProviderTypes[provider.Name] = newProvider
+		caProviderTypes[provider.Name] = newProvider
 	}
 
 	// we return the first provider that the CP supports.
 	for _, providerType := range cp.Providers {
-		if provider, found := cpProviderTypes[providerType.Name]; found {
-			return provider
+		if accesser, found := caProviderTypes[providerType.Name]; found {
+			return accesser
 		}
 	}
 	return nil
