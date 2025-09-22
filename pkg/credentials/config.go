@@ -8,10 +8,9 @@ import (
 	"net/url"
 	"os"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	clientcmdapiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
+	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
@@ -92,11 +91,11 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	}
 
 	// Propagate reserved extension into ExecCredential.Spec.Cluster.Config if present
-	var extensions map[string]runtime.Object
-	if err := clientcmdapiv1.Convert_Slice_v1_NamedExtension_To_Map_string_To_runtime_Object(&provider.Cluster.Extensions, &extensions, nil); err != nil {
-		return nil, fmt.Errorf("failed to convert v1 Cluster extensions: %w", err)
+	internalCluster := clientcmdapi.NewCluster()
+	if err := clientcmdlatest.Scheme.Convert(&provider.Cluster, internalCluster, nil); err != nil {
+		return nil, fmt.Errorf("failed to convert v1 Cluster to internal: %w", err)
 	}
-	config.ExecProvider.Config = extensions[clusterExtensionKey]
+	config.ExecProvider.Config = internalCluster.Extensions[clusterExtensionKey]
 
 	return config, nil
 }
