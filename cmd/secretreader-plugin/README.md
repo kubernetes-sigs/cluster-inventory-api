@@ -56,3 +56,24 @@ Use the following provider config to exec the secret-reader plugin.
   ]
 }
 ```
+
+### Note: `ClusterProfile.status.credentialProviders[].cluster.extensions`
+
+- Required: set `extensions[].name` to `client.authentication.k8s.io/exec`.
+- The library reads only the `extension` field of that entry and passes it through to `ExecCredential.Spec.Cluster.Config`.
+- The `secretreader` plugin uses `clusterName` inside that Config.
+
+Example:
+
+```yaml
+status:
+  credentialProviders:
+  - name: secretreader
+    cluster:
+      server: https://<spoke-server>
+      certificate-authority-data: <BASE64_CA>
+      extensions:
+      - name: client.authentication.k8s.io/exec
+        extension:
+          clusterName: spoke-1
+```

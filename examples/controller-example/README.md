@@ -40,3 +40,26 @@ KUBECONFIG=./examples/controller-example/hub.kubeconfig ./examples/controller-ex
   -namespace default \
   -clusterprofile spoke-1
 ```
+
+## Note: ClusterProfile extensions
+
+- Required: set `status.credentialProviders[].cluster.extensions[].name` to `client.authentication.k8s.io/exec`.
+- The library reads only the `extension` field of that entry (arbitrary JSON). Other `extensions` entries are ignored.
+- That `extension` is passed through to `ExecCredential.Spec.Cluster.Config`. The `secretreader` plugin uses `clusterName` in that object.
+
+Example (to be merged into `ClusterProfile.status`):
+
+```yaml
+status:
+  credentialProviders:
+  - name: secretreader
+    cluster:
+      server: https://<spoke-server>
+      certificate-authority-data: <BASE64_CA>
+      extensions:
+      - name: client.authentication.k8s.io/exec
+        extension:
+          clusterName: spoke-1
+```
+
+Note: `client.authentication.k8s.io/exec` is a reserved key in the Kubernetes client authentication API. See the official documentation ("client.authentication.k8s.io").
