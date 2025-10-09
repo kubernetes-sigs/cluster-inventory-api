@@ -14,6 +14,10 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
+// client.authentication.k8s.io/exec is a reserved extension key defined by the Kubernetes
+// client authentication API (SIG Auth), not by the ClusterProfile API.
+// Reference:
+// https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/#client-authentication-k8s-io-v1beta1-Cluster
 const clusterExtensionKey = "client.authentication.k8s.io/exec"
 
 type Provider struct {
