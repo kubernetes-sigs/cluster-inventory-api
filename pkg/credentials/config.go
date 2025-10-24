@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
@@ -58,30 +59,31 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 	return &providers, nil
 }
 
+// BuildConfigFromCP builds a rest.Config from the given ClusterProfile
 func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
-	// 1. obtain the correct provider from the CP
-	provider := cp.getProviderFromClusterProfile(clusterprofile)
-	if provider == nil {
-		return nil, fmt.Errorf("no matching provider found for cluster profile %q", clusterprofile.Name)
+	// 1. obtain the correct clusterAccessor from the CP
+	clusterAccessor := cp.getClusterAccessorFromClusterProfile(clusterprofile)
+	if clusterAccessor == nil {
+		return nil, fmt.Errorf("no matching cluster accessor found for cluster profile %q", clusterprofile.Name)
 	}
 
 	// 2. Get Exec Config
-	execConfig := cp.getExecConfigFromConfig(provider.Name)
+	execConfig := cp.getExecConfigFromConfig(clusterAccessor.Name)
 	if execConfig == nil {
-		return nil, fmt.Errorf("no exec credentials found for provider %q", provider.Name)
+		return nil, fmt.Errorf("no exec credentials found for provider %q", clusterAccessor.Name)
 	}
 
 	// 3. build resulting rest.Config
 	config := &rest.Config{
-		Host: provider.Cluster.Server,
+		Host: clusterAccessor.Cluster.Server,
 		TLSClientConfig: rest.TLSClientConfig{
-			CAData: provider.Cluster.CertificateAuthorityData,
+			CAData: clusterAccessor.Cluster.CertificateAuthorityData,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
-			if provider.Cluster.ProxyURL == "" {
+			if clusterAccessor.Cluster.ProxyURL == "" {
 				return nil, nil
 			}
-			return url.Parse(provider.Cluster.ProxyURL)
+			return url.Parse(clusterAccessor.Cluster.ProxyURL)
 		},
 	}
 
@@ -96,7 +98,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 
 	// Propagate reserved extension into ExecCredential.Spec.Cluster.Config if present
 	internalCluster := clientcmdapi.NewCluster()
-	if err := clientcmdlatest.Scheme.Convert(&provider.Cluster, internalCluster, nil); err != nil {
+	if err := clientcmdlatest.Scheme.Convert(&clusterAccessor.Cluster, internalCluster, nil); err != nil {
 		return nil, fmt.Errorf("failed to convert v1 Cluster to internal: %w", err)
 	}
 	config.ExecProvider.Config = internalCluster.Extensions[clusterExtensionKey]
@@ -113,18 +115,25 @@ func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) *cli
 	return nil
 }
 
-func (cp *CredentialsProvider) getProviderFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.CredentialProvider {
-	cpProviderTypes := map[string]*v1alpha1.CredentialProvider{}
+// getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
+// that matches one of the supported provider types in the CredentialsProvider
+func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.AccessProvider {
+	accessProviderTypes := map[string]*v1alpha1.AccessProvider{}
 
-	for _, provider := range cluster.Status.CredentialProviders {
-		newProvider := provider.DeepCopy()
-		cpProviderTypes[provider.Name] = newProvider
+	// to keep backward compatibility, we first check the CredentialProviders field
+	for _, accessProvider := range cluster.Status.CredentialProviders {
+		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()
+		klog.Warningf("ClusterProfile %q uses deprecated field CredentialProviders %q; please migrate to AccessProviders", cluster.Name, accessProvider.Name)
 	}
 
-	// we return the first provider that the CP supports.
+	for _, accessProvider := range cluster.Status.AccessProviders {
+		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()
+	}
+
+	// we return the first access provider that the CredentialsProvider supports.
 	for _, providerType := range cp.Providers {
-		if provider, found := cpProviderTypes[providerType.Name]; found {
-			return provider
+		if accessor, found := accessProviderTypes[providerType.Name]; found {
+			return accessor
 		}
 	}
 	return nil

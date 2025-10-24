@@ -71,15 +71,30 @@ type ClusterProfileStatus struct {
 	// +optional
 	Properties []Property `json:"properties,omitempty"`
 
-	// CredentialProviders is a list credential providers that can provide kubeconfig
-	// credential to connect to the cluster.
+	// CredentialProviders is a list of cluster access providers that can provide access
+	// information for clusters.
+	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided, both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+	// +optional
+	// +deprecated
 	CredentialProviders []CredentialProvider `json:"credentialProviders,omitempty"`
+
+	// AccessProviders is a list of cluster access providers that can provide access
+	// information for clusters.
+	// +optional
+	AccessProviders []AccessProvider `json:"accessProviders,omitempty"`
 }
 
-type CredentialProvider struct {
+// AccessProvider defines how to access the cluster.
+// It contains the name of the provider name and the cluster connection details.
+// The name is used to identify different access info types, such as "kubeconfig" or "oidc".
+// The Cluster field contains the actual cluster connection details, such as server address,
+// certificate authority data, and authentication information.
+type AccessProvider struct {
 	Name    string              `json:"name"`
 	Cluster clientcmdv1.Cluster `json:"cluster,omitempty"`
 }
+
+type CredentialProvider = AccessProvider
 
 // ClusterVersion represents version information about the cluster.
 type ClusterVersion struct {
