@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,8 +15,6 @@ import (
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
-	"os"
-	"path/filepath"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 	"sigs.k8s.io/yaml"
@@ -66,7 +67,7 @@ var _ = ginkgo.Describe("Credentials test", func() {
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 
 		cp.Status = v1alpha1.ClusterProfileStatus{
-			CredentialProviders: []v1alpha1.CredentialProvider{
+			AccessProviders: []v1alpha1.AccessProvider{
 				{
 					Name: "provider1",
 					Cluster: clientcmdv1.Cluster{

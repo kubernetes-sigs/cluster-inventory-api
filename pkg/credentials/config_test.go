@@ -217,7 +217,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 					Name: "test-cluster",
 				},
 				Status: v1alpha1.ClusterProfileStatus{
-					CredentialProviders: []v1alpha1.CredentialProvider{
+					AccessProviders: []v1alpha1.AccessProvider{
 						{
 							Name: "test-provider-1",
 							Cluster: clientcmdv1.Cluster{
@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 		})
 
 		ginkgo.It("should return the first matching provider", func() {
-			provider := credentialsProvider.getProviderFromClusterProfile(clusterProfile)
+			provider := credentialsProvider.getClusterAccessorFromClusterProfile(clusterProfile)
 			gomega.Expect(provider).NotTo(gomega.BeNil())
 			gomega.Expect(provider.Name).To(gomega.Equal("test-provider-1"))
 			gomega.Expect(provider.Cluster.Server).To(gomega.Equal("https://test-server-1.com"))
@@ -255,7 +255,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			mismatchedCP := New([]Provider{
 				{Name: "different-provider", ExecConfig: &clientcmdapi.ExecConfig{Command: "cmd"}},
 			})
-			provider := mismatchedCP.getProviderFromClusterProfile(clusterProfile)
+			provider := mismatchedCP.getClusterAccessorFromClusterProfile(clusterProfile)
 			gomega.Expect(provider).To(gomega.BeNil())
 		})
 
@@ -264,17 +264,17 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "empty-cluster"},
 				Status:     v1alpha1.ClusterProfileStatus{},
 			}
-			provider := credentialsProvider.getProviderFromClusterProfile(emptyClusterProfile)
+			provider := credentialsProvider.getClusterAccessorFromClusterProfile(emptyClusterProfile)
 			gomega.Expect(provider).To(gomega.BeNil())
 		})
 
 		ginkgo.It("should return a deep copy of the provider", func() {
-			provider := credentialsProvider.getProviderFromClusterProfile(clusterProfile)
+			provider := credentialsProvider.getClusterAccessorFromClusterProfile(clusterProfile)
 			gomega.Expect(provider).NotTo(gomega.BeNil())
 
 			// Modify the original cluster profile
-			originalServer := clusterProfile.Status.CredentialProviders[0].Cluster.Server
-			clusterProfile.Status.CredentialProviders[0].Cluster.Server = "modified-server"
+			originalServer := clusterProfile.Status.AccessProviders[0].Cluster.Server
+			clusterProfile.Status.AccessProviders[0].Cluster.Server = "modified-server"
 
 			// The returned provider should not be affected
 			gomega.Expect(provider.Cluster.Server).To(gomega.Equal(originalServer))
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 					Name: "test-cluster",
 				},
 				Status: v1alpha1.ClusterProfileStatus{
-					CredentialProviders: []v1alpha1.CredentialProvider{
+					AccessProviders: []v1alpha1.AccessProvider{
 						{
 							Name: "test-provider-1",
 							Cluster: clientcmdv1.Cluster{
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			config, err := mismatchedCP.BuildConfigFromCP(clusterProfile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(config).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("no matching provider found for cluster profile"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("no matching cluster accessor found for cluster profile"))
 		})
 
 		ginkgo.It("should return an error when no exec config is found", func() {
