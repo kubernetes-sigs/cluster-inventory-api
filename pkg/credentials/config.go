@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 
+	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
@@ -15,15 +16,32 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
-// client.authentication.k8s.io/exec is a reserved extension key defined by the Kubernetes
-// client authentication API (SIG Auth), not by the ClusterProfile API.
-// Reference:
-// https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/#client-authentication-k8s-io-v1beta1-Cluster
-const clusterExtensionKey = "client.authentication.k8s.io/exec"
+const (
+	// client.authentication.k8s.io/exec is a reserved extension key defined by the Kubernetes
+	// client authentication API (SIG Auth), not by the ClusterProfile API.
+	// Reference:
+	// https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/#client-authentication-k8s-io-v1beta1-Cluster
+	clusterExecExtensionKey = "client.authentication.k8s.io/exec"
+
+	// additionalCLIArgsExtensionKey and additionalEnvVarsExtensionKey are
+	// two reserved extensions defined in KEP 5339, which allows users to pass in (usually cluster-specific)
+	// additional command-line arguments and environment variables to the exec plugin from
+	// the ClusterProfile API side.
+	additionalCLIArgsExtensionKey = "multicluster.x-k8s.io/clusterprofiles/auth/exec/additional-args"
+	additionalEnvVarsExtensionKey = "multicluster.x-k8s.io/clusterprofiles/auth/exec/additional-envs"
+)
+
+type AdditionalCLIArgEnvVarExtensionFlag int
+
+const (
+	AdditionalCLIArgEnvVarExtensionFlagIgnore AdditionalCLIArgEnvVarExtensionFlag = iota
+	AdditionalCLIArgEnvVarExtensionFlagAllow
+)
 
 type Provider struct {
-	Name       string                   `json:"name"`
-	ExecConfig *clientcmdapi.ExecConfig `json:"execConfig"`
+	Name                                string                              `json:"name"`
+	ExecConfig                          *clientcmdapi.ExecConfig            `json:"execConfig"`
+	AdditionalCLIArgEnvVarExtensionFlag AdditionalCLIArgEnvVarExtensionFlag `json:"additionalCLIArgEnvVarExtensionFlag,omitempty"`
 }
 
 type CredentialsProvider struct {
@@ -68,9 +86,45 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	}
 
 	// 2. Get Exec Config
-	execConfig := cp.getExecConfigFromConfig(clusterAccessor.Name)
+	execConfig, additionalCLIArgEnvVarsExtFlag := cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
 	if execConfig == nil {
 		return nil, fmt.Errorf("no exec credentials found for provider %q", clusterAccessor.Name)
+	}
+
+	// 3. Add additional CLI arguments and environment variables from cluster extensions if allowed.
+	for idx := range clusterAccessor.Cluster.Extensions {
+		ext := &clusterAccessor.Cluster.Extensions[idx]
+
+		switch {
+		case additionalCLIArgEnvVarsExtFlag == AdditionalCLIArgEnvVarExtensionFlagAllow && ext.Name == additionalCLIArgsExtensionKey:
+			var additionalArgs []string
+			if err := yaml.Unmarshal(ext.Extension.Raw, &additionalArgs); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal additional CLI args extension: %w", err)
+			}
+			execConfig.Args = append(execConfig.Args, additionalArgs...)
+		case additionalCLIArgEnvVarsExtFlag == AdditionalCLIArgEnvVarExtensionFlagAllow && ext.Name == additionalEnvVarsExtensionKey:
+			var additionalEnvs map[string]string
+			if err := yaml.Unmarshal(ext.Extension.Raw, &additionalEnvs); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
+			}
+
+			// Update the value of existing env vars.
+			for idx := range execConfig.Env {
+				env := &execConfig.Env[idx]
+				if _, exists := additionalEnvs[env.Name]; exists {
+					env.Value = additionalEnvs[env.Name]
+					delete(additionalEnvs, env.Name)
+				}
+			}
+
+			// Add new env vars.
+			for name, value := range additionalEnvs {
+				execConfig.Env = append(execConfig.Env, clientcmdapi.ExecEnvVar{
+					Name:  name,
+					Value: value,
+				})
+			}
+		}
 	}
 
 	// 3. build resulting rest.Config
@@ -94,6 +148,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 		Env:                execConfig.Env,
 		InteractiveMode:    "Never",
 		ProvideClusterInfo: execConfig.ProvideClusterInfo,
+		Config:             execConfig.Config,
 	}
 
 	// Propagate reserved extension into ExecCredential.Spec.Cluster.Config if present
@@ -101,18 +156,20 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	if err := clientcmdlatest.Scheme.Convert(&clusterAccessor.Cluster, internalCluster, nil); err != nil {
 		return nil, fmt.Errorf("failed to convert v1 Cluster to internal: %w", err)
 	}
-	config.ExecProvider.Config = internalCluster.Extensions[clusterExtensionKey]
+	if extData, ok := internalCluster.Extensions[clusterExecExtensionKey]; ok {
+		config.ExecProvider.Config = extData
+	}
 
 	return config, nil
 }
 
-func (cp *CredentialsProvider) getExecConfigFromConfig(providerName string) *clientcmdapi.ExecConfig {
+func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(providerName string) (*clientcmdapi.ExecConfig, AdditionalCLIArgEnvVarExtensionFlag) {
 	for _, provider := range cp.Providers {
 		if provider.Name == providerName {
-			return provider.ExecConfig
+			return provider.ExecConfig, provider.AdditionalCLIArgEnvVarExtensionFlag
 		}
 	}
-	return nil
+	return nil, AdditionalCLIArgEnvVarExtensionFlagIgnore
 }
 
 // getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
