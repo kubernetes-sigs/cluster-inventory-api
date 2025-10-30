@@ -13,6 +13,13 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
 )
 
+// The example below showcases how to use Azure's kubelogin exec plugin to sign into an
+// AKS cluster using the workload identity method.
+//
+// As the method requires cluster-specific information such as tenant ID and client ID,
+// the example also demonstrates how to pass in additional command-line arguments
+// and/or environment variables to the exec plugin via the ClusterProfile API using the
+// reserved extensions, as defined in KEP 5339.
 func main() {
 	providers := []credentials.Provider{
 		{
@@ -51,6 +58,11 @@ func main() {
 		log.Fatalf("failed to marshal additional args")
 	}
 
+	// The additional environment variables are also cluster-specific information.
+	//
+	// kubelogin accepts client ID input also in the form of a CLI argument; the example
+	// here uses the environment variable form just to showcase the different ways of passing
+	// in additional information.
 	additionalEnvVars := map[string]string{
 		"AZURE_CLIENT_ID": "CLIENT_ID",
 	}
