@@ -18,7 +18,7 @@ import (
 
 func main() {
 	// Flags
-	credentialsProviders := credentials.SetupProviderFileFlag()
+	accessProviders := credentials.SetupProviderFileFlag()
 	namespace := flag.String("namespace", "default", "Namespace of the ClusterProfile on the hub cluster")
 	clusterProfileName := flag.String("clusterprofile", "", "Name of the ClusterProfile to target (required)")
 	flag.Parse()
@@ -28,7 +28,7 @@ func main() {
 	}
 
 	// Load providers file
-	cpCreds, err := credentials.NewFromFile(*credentialsProviders)
+	cpCreds, err := credentials.NewFromFile(*accessProviders)
 	if err != nil {
 		log.Fatalf("Got error reading credentials providers: %v", err)
 	}

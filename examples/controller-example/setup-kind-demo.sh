@@ -125,7 +125,7 @@ EOF
 STATUS_PATCH=$(cat <<EOF
 {
   "status": {
-    "credentialProviders": [
+    "accessProviders": [
       {
         "name": "secretreader",
         "cluster": {
