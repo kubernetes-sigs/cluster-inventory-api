@@ -5,11 +5,15 @@ import (
 	"flag"
 	"log"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	k8sclient "k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	ciaclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
@@ -52,7 +56,7 @@ func main() {
 		log.Fatalf("Got error generating spoke rest.Config: %v", err)
 	}
 
-	// Create a Kubernetes client for the spoke cluster and list pods
+	// Example using client-go: Create a Kubernetes client for the spoke cluster and list pods
 	mclient, err := k8sclient.NewForConfig(spokeConfig)
 	if err != nil {
 		log.Fatalf("failed to create spoke client: %v", err)
@@ -61,8 +65,26 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to list pods on spoke: %v", err)
 	}
-	log.Printf("Listed %d pods on spoke cluster", len(plist.Items))
+	log.Printf("[client-go] Listed %d pods on spoke cluster", len(plist.Items))
 	for _, p := range plist.Items {
-		log.Printf("pod: %s/%s", p.Namespace, p.Name)
+		log.Printf("[client-go] pod: %s/%s", p.Namespace, p.Name)
+	}
+
+	// Example using controller-runtime client
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		log.Fatalf("failed to add core scheme: %v", err)
+	}
+	crc, err := crclient.New(spokeConfig, crclient.Options{Scheme: scheme})
+	if err != nil {
+		log.Fatalf("failed to create controller-runtime client: %v", err)
+	}
+	var crPodList corev1.PodList
+	if err := crc.List(context.Background(), &crPodList); err != nil {
+		log.Fatalf("failed to list pods with controller-runtime: %v", err)
+	}
+	log.Printf("[controller-runtime] Listed %d pods on spoke cluster", len(crPodList.Items))
+	for _, p := range crPodList.Items {
+		log.Printf("[controller-runtime] pod: %s/%s", p.Namespace, p.Name)
 	}
 }
