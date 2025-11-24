@@ -25,7 +25,9 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
@@ -65,6 +67,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 					Args:       []string{"arg3"},
 					APIVersion: "client.authentication.k8s.io/v1beta1",
 				},
+				AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagAllow,
 			},
 		}
 		credentialsProvider = New(testProviders)
@@ -132,6 +135,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 							Command:            "gke-gcloud-auth-plugin",
 							ProvideClusterInfo: true,
 						},
+						AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagIgnore,
 					},
 				},
 			}
@@ -150,6 +154,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(cp.Providers).To(gomega.HaveLen(1))
 			gomega.Expect(cp.Providers[0].Name).To(gomega.Equal("gkeFleet"))
 			gomega.Expect(cp.Providers[0].ExecConfig.Command).To(gomega.Equal("gke-gcloud-auth-plugin"))
+			gomega.Expect(cp.Providers[0].AdditionalCLIArgEnvVarExtensionFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
 		})
 
 		ginkgo.It("should return an error when file does not exist", func() {
@@ -185,26 +190,38 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 	ginkgo.Describe("getExecConfigFromConfig", func() {
 		ginkgo.It("should return the correct ExecConfig for existing provider", func() {
-			execConfig := credentialsProvider.getExecConfigFromConfig("test-provider-1")
+			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-1")
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
 			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-1"))
 			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg1", "arg2"}))
+			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+		})
+
+		ginkgo.It("should return the correct ExecConfig for another existing provider", func() {
+			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-2")
+			gomega.Expect(execConfig).NotTo(gomega.BeNil())
+			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-2"))
+			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg3"}))
+			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagAllow))
 		})
 
 		ginkgo.It("should return nil for non-existing provider", func() {
-			execConfig := credentialsProvider.getExecConfigFromConfig("non-existent-provider")
+			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("non-existent-provider")
 			gomega.Expect(execConfig).To(gomega.BeNil())
+			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
 		})
 
 		ginkgo.It("should return nil for empty provider name", func() {
-			execConfig := credentialsProvider.getExecConfigFromConfig("")
+			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("")
 			gomega.Expect(execConfig).To(gomega.BeNil())
+			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
 		})
 
 		ginkgo.It("should handle CredentialsProvider with no providers", func() {
 			emptyCP := New([]Provider{})
-			execConfig := emptyCP.getExecConfigFromConfig("any-provider")
+			execConfig, additionalCLIArgEnvVarsExtFlag := emptyCP.getExecConfigAndFlagsFromConfig("any-provider")
 			gomega.Expect(execConfig).To(gomega.BeNil())
+			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
 		})
 	})
 
@@ -285,6 +302,8 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 	ginkgo.Describe("BuildConfigFromCP", func() {
 		var clusterProfile *v1alpha1.ClusterProfile
 
+		additionalCLIArgsData, _ := yaml.Marshal([]string{"--audience", "audience"})
+		additionalEnvVarsData, _ := yaml.Marshal(map[string]string{"CLIENT_ID": "client-id", "TENANT_ID": "tenant-id"})
 		ginkgo.BeforeEach(func() {
 			clusterProfile = &v1alpha1.ClusterProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -298,6 +317,26 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 								Server:                   "https://test-server.com",
 								CertificateAuthorityData: []byte("test-ca-data"),
 								ProxyURL:                 "http://proxy.example.com",
+								Extensions: []clientcmdv1.NamedExtension{
+									{
+										Name: clusterExecExtensionKey,
+										Extension: runtime.RawExtension{
+											Raw: []byte("arbitrary-data"),
+										},
+									},
+									{
+										Name: additionalCLIArgsExtensionKey,
+										Extension: runtime.RawExtension{
+											Raw: additionalCLIArgsData,
+										},
+									},
+									{
+										Name: additionalEnvVarsExtensionKey,
+										Extension: runtime.RawExtension{
+											Raw: additionalEnvVarsData,
+										},
+									},
+								},
 							},
 						},
 					},
@@ -327,7 +366,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(err.Error()).To(gomega.ContainSubstring("no exec credentials found for provider"))
 		})
 
-		ginkgo.It("should build config successfully", func() {
+		ginkgo.It("should build config successfully (no additional CLI args/env vars)", func() {
 			cred := clientauthenticationv1.ExecCredential{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "client.authentication.k8s.io/v1",
@@ -355,6 +394,61 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(config).NotTo(gomega.BeNil())
 			gomega.Expect(config.Host).To(gomega.Equal("https://test-server.com"))
 			gomega.Expect(config.TLSClientConfig.CAData).To(gomega.Equal([]byte("test-ca-data")))
+			gomega.Expect(config.ExecProvider.Command).To(gomega.Equal("cat"))
+			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal([]string{testFile}))
+		})
+
+		ginkgo.It("should build config successfully (with additional CLI args/env vars)", func() {
+			cred := clientauthenticationv1.ExecCredential{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "client.authentication.k8s.io/v1",
+					Kind:       "ExecCredential",
+				},
+				Status: &clientauthenticationv1.ExecCredentialStatus{
+					Token: "test-token",
+				},
+			}
+			jsonData, err := json.Marshal(cred)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			testFile := filepath.Join(tempDir, "test-config.json")
+			err = os.WriteFile(testFile, jsonData, 0644)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			execCP := New([]Provider{
+				{
+					Name: "test-provider-1",
+					ExecConfig: &clientcmdapi.ExecConfig{
+						APIVersion: "client.authentication.k8s.io/v1",
+						Command:    "cat",
+						Args:       []string{testFile},
+						Env: []clientcmdapi.ExecEnvVar{
+							{
+								Name:  "CLIENT_ID",
+								Value: "None",
+							},
+						},
+					},
+					AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagAllow,
+				},
+			})
+
+			config, err := execCP.BuildConfigFromCP(clusterProfile)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(config).NotTo(gomega.BeNil())
+			gomega.Expect(config.Host).To(gomega.Equal("https://test-server.com"))
+			gomega.Expect(config.TLSClientConfig.CAData).To(gomega.Equal([]byte("test-ca-data")))
+			gomega.Expect(config.ExecProvider.Command).To(gomega.Equal("cat"))
+			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal([]string{testFile, "--audience", "audience"}))
+			gomega.Expect(len(config.ExecProvider.Env)).To(gomega.Equal(2))
+			gomega.Expect(config.ExecProvider.Env).To(gomega.ContainElements(
+				clientcmdapi.ExecEnvVar{
+					Name:  "CLIENT_ID",
+					Value: "client-id",
+				},
+				clientcmdapi.ExecEnvVar{
+					Name:  "TENANT_ID",
+					Value: "tenant-id",
+				},
+			))
 		})
 	})
 })
