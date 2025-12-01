@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,8 +20,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
@@ -31,9 +29,16 @@ const (
 	Group = "multicluster.x-k8s.io"
 	// Version is the API version.
 	Version = "v1alpha1"
-	// Kind is the resource kind.
+
+	// ClusterProfile resource constants.
+	// Kind is the resource kind for ClusterProfile.
 	Kind     = "ClusterProfile"
 	resource = "clusterprofiles"
+
+	// PlacementDecision resource constants.
+	// PlacementDecisionKind is the resource kind for PlacementDecision.
+	PlacementDecisionKind     = "PlacementDecision"
+	placementDecisionResource = "placementdecisions"
 )
 
 var (
@@ -61,6 +66,20 @@ var (
 		Resource: resource,
 	}
 
+	// PlacementDecisionSchemeGroupVersionKind is the group, version and kind for the PlacementDecision CR.
+	PlacementDecisionSchemeGroupVersionKind = schema.GroupVersionKind{
+		Group:   Group,
+		Version: Version,
+		Kind:    PlacementDecisionKind,
+	}
+
+	// PlacementDecisionSchemeGroupVersionResource is the group, version and resource for the PlacementDecision CR.
+	PlacementDecisionSchemeGroupVersionResource = schema.GroupVersionResource{
+		Group:    Group,
+		Version:  Version,
+		Resource: placementDecisionResource,
+	}
+
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
@@ -69,14 +88,4 @@ var (
 // DEPRECATED
 func Resource(resource string) schema.GroupResource {
 	return schema.GroupResource{Group: GroupVersion.Group, Resource: resource}
-}
-
-// Adds the list of known types to api.Scheme.
-func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion,
-		&ClusterProfile{},
-		&ClusterProfileList{},
-	)
-	metav1.AddToGroupVersion(scheme, GroupVersion)
-	return nil
 }
