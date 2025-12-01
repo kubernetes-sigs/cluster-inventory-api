@@ -51,10 +51,14 @@ const SecretTokenKey = "token"
 
 func (Provider) Name() string { return ProviderName }
 
-func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error) {
+func (p Provider) GetToken(
+	ctx context.Context,
+	info clientauthenticationv1.ExecCredential,
+) (clientauthenticationv1.ExecCredentialStatus, error) {
 	// Require pre-initialized typed clients
 	if p.KubeClient == nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, errors.New("provider clients are not initialized; construct with NewDefault or set clients")
+		return clientauthenticationv1.ExecCredentialStatus{},
+			errors.New("provider clients are not initialized; construct with NewDefault or set clients")
 	}
 
 	// Require clusterName to be present in extensions config
@@ -67,21 +71,25 @@ func (p Provider) GetToken(ctx context.Context, info clientauthenticationv1.Exec
 	}
 	var cfg execClusterConfig
 	if err := json.Unmarshal(info.Spec.Cluster.Config.Raw, &cfg); err != nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("invalid ExecCredential.Spec.Cluster.Config: %w", err)
+		return clientauthenticationv1.ExecCredentialStatus{},
+			fmt.Errorf("invalid ExecCredential.Spec.Cluster.Config: %w", err)
 	}
 	if cfg.ClusterName == "" {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("missing clusterName in ExecCredential.Spec.Cluster.Config")
+		return clientauthenticationv1.ExecCredentialStatus{},
+			fmt.Errorf("missing clusterName in ExecCredential.Spec.Cluster.Config")
 	}
 	clusterName := cfg.ClusterName
 
 	// Read Secret <namespace>/<clusterName> via typed client and return token
 	sec, err := p.KubeClient.CoreV1().Secrets(p.Namespace).Get(ctx, clusterName, metav1.GetOptions{})
 	if err != nil {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("failed to get secret %s/%s: %w", p.Namespace, clusterName, err)
+		return clientauthenticationv1.ExecCredentialStatus{},
+			fmt.Errorf("failed to get secret %s/%s: %w", p.Namespace, clusterName, err)
 	}
 	data, ok := sec.Data[SecretTokenKey]
 	if !ok || len(data) == 0 {
-		return clientauthenticationv1.ExecCredentialStatus{}, fmt.Errorf("secret %s/%s missing %q key", p.Namespace, clusterName, SecretTokenKey)
+		return clientauthenticationv1.ExecCredentialStatus{},
+			fmt.Errorf("secret %s/%s missing %q key", p.Namespace, clusterName, SecretTokenKey)
 	}
 
 	return clientauthenticationv1.ExecCredentialStatus{Token: string(data)}, nil
