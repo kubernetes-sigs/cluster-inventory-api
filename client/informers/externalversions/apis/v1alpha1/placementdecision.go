@@ -31,59 +31,59 @@ import (
 	apisv1alpha1 "sigs.k8s.io/cluster-inventory-api/client/listers/apis/v1alpha1"
 )
 
-// ClusterProfileInformer provides access to a shared informer and lister for
-// ClusterProfiles.
-type ClusterProfileInformer interface {
+// PlacementDecisionInformer provides access to a shared informer and lister for
+// PlacementDecisions.
+type PlacementDecisionInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() apisv1alpha1.ClusterProfileLister
+	Lister() apisv1alpha1.PlacementDecisionLister
 }
 
-type clusterProfileInformer struct {
+type placementDecisionInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewClusterProfileInformer constructs a new informer for ClusterProfile type.
+// NewPlacementDecisionInformer constructs a new informer for PlacementDecision type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewClusterProfileInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredClusterProfileInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewPlacementDecisionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredPlacementDecisionInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredClusterProfileInformer constructs a new informer for ClusterProfile type.
+// NewFilteredPlacementDecisionInformer constructs a new informer for PlacementDecision type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredClusterProfileInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredPlacementDecisionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApisV1alpha1().ClusterProfiles(namespace).List(context.TODO(), options)
+				return client.ApisV1alpha1().PlacementDecisions(namespace).List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApisV1alpha1().ClusterProfiles(namespace).Watch(context.TODO(), options)
+				return client.ApisV1alpha1().PlacementDecisions(namespace).Watch(context.TODO(), options)
 			},
 		},
-		&clusterinventoryapiapisv1alpha1.ClusterProfile{},
+		&clusterinventoryapiapisv1alpha1.PlacementDecision{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *clusterProfileInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredClusterProfileInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *placementDecisionInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredPlacementDecisionInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *clusterProfileInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&clusterinventoryapiapisv1alpha1.ClusterProfile{}, f.defaultInformer)
+func (f *placementDecisionInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&clusterinventoryapiapisv1alpha1.PlacementDecision{}, f.defaultInformer)
 }
 
-func (f *clusterProfileInformer) Lister() apisv1alpha1.ClusterProfileLister {
-	return apisv1alpha1.NewClusterProfileLister(f.Informer().GetIndexer())
+func (f *placementDecisionInformer) Lister() apisv1alpha1.PlacementDecisionLister {
+	return apisv1alpha1.NewPlacementDecisionLister(f.Informer().GetIndexer())
 }
