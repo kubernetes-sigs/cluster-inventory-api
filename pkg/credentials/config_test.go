@@ -67,7 +67,8 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 					Args:       []string{"arg3"},
 					APIVersion: "client.authentication.k8s.io/v1beta1",
 				},
-				AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagAllow,
+				AllowProfileSourcedCLIArgs: true,
+				AllowProfileSourcedEnvVars: true,
 			},
 		}
 		credentialsProvider = New(testProviders)
@@ -135,7 +136,6 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 							Command:            "gke-gcloud-auth-plugin",
 							ProvideClusterInfo: true,
 						},
-						AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagIgnore,
 					},
 				},
 			}
@@ -154,7 +154,8 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(cp.Providers).To(gomega.HaveLen(1))
 			gomega.Expect(cp.Providers[0].Name).To(gomega.Equal("gkeFleet"))
 			gomega.Expect(cp.Providers[0].ExecConfig.Command).To(gomega.Equal("gke-gcloud-auth-plugin"))
-			gomega.Expect(cp.Providers[0].AdditionalCLIArgEnvVarExtensionFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+			gomega.Expect(cp.Providers[0].AllowProfileSourcedCLIArgs).To(gomega.Equal(false))
+			gomega.Expect(cp.Providers[0].AllowProfileSourcedEnvVars).To(gomega.Equal(false))
 		})
 
 		ginkgo.It("should return an error when file does not exist", func() {
@@ -190,38 +191,43 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 	ginkgo.Describe("getExecConfigFromConfig", func() {
 		ginkgo.It("should return the correct ExecConfig for existing provider", func() {
-			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-1")
+			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-1")
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
 			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-1"))
 			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg1", "arg2"}))
-			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(false))
+			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(false))
 		})
 
 		ginkgo.It("should return the correct ExecConfig for another existing provider", func() {
-			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-2")
+			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-2")
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
 			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-2"))
 			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg3"}))
-			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagAllow))
+			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(true))
+			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(true))
 		})
 
 		ginkgo.It("should return nil for non-existing provider", func() {
-			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("non-existent-provider")
+			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("non-existent-provider")
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(false))
+			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(false))
 		})
 
 		ginkgo.It("should return nil for empty provider name", func() {
-			execConfig, additionalCLIArgEnvVarsExtFlag := credentialsProvider.getExecConfigAndFlagsFromConfig("")
+			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("")
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(false))
+			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(false))
 		})
 
 		ginkgo.It("should handle CredentialsProvider with no providers", func() {
 			emptyCP := New([]Provider{})
-			execConfig, additionalCLIArgEnvVarsExtFlag := emptyCP.getExecConfigAndFlagsFromConfig("any-provider")
+			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := emptyCP.getExecConfigAndFlagsFromConfig("any-provider")
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(additionalCLIArgEnvVarsExtFlag).To(gomega.Equal(AdditionalCLIArgEnvVarExtensionFlagIgnore))
+			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(false))
+			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(false))
 		})
 	})
 
@@ -427,7 +433,8 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 							},
 						},
 					},
-					AdditionalCLIArgEnvVarExtensionFlag: AdditionalCLIArgEnvVarExtensionFlagAllow,
+					AllowProfileSourcedCLIArgs: true,
+					AllowProfileSourcedEnvVars: true,
 				},
 			})
 

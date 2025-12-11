@@ -42,14 +42,15 @@ func main() {
 				ProvideClusterInfo: false,
 				InteractiveMode:    clientcmdapi.NeverExecInteractiveMode,
 			},
-			AdditionalCLIArgEnvVarExtensionFlag: credentials.AdditionalCLIArgEnvVarExtensionFlagAllow,
+			AllowProfileSourcedCLIArgs: true,
+			AllowProfileSourcedEnvVars: true,
 		},
 	}
 	cps := credentials.New(providers)
 
 	// The additional arguments are cluster-specific information.
 	additionalArgs := []string{
-		"--tenant-id", "TENANT_ID",
+		"--tenant-id", "TENANT_ID", // The tenant ID of the AKS cluster.
 		"--authority-host", "https://login.microsoftonline.com/",
 		// The kubelogin plugin already knows the scopes for AKS; no need to specify it explicitly.
 	}
@@ -64,7 +65,7 @@ func main() {
 	// here uses the environment variable form just to showcase the different ways of passing
 	// in additional information.
 	additionalEnvVars := map[string]string{
-		"AZURE_CLIENT_ID": "CLIENT_ID",
+		"AZURE_CLIENT_ID": "CLIENT_ID", // The client (application) ID to use for signing into the AKS cluster.
 	}
 	additionalEnvVarsYAML, err := yaml.Marshal(additionalEnvVars)
 	if err != nil {
@@ -83,11 +84,11 @@ func main() {
 			},
 		},
 		Status: v1alpha1.ClusterProfileStatus{
-			CredentialProviders: []v1alpha1.CredentialProvider{
+			AccessProviders: []v1alpha1.AccessProvider{
 				{
 					Name: "aks-workload-identity",
 					Cluster: clientcmdapiv1.Cluster{
-						Server:                   "https://bravelion.hcp.eastus.azmk8s.io:443",
+						Server:                   "https://example.cluster.hcp.eastus.azmk8s.io:443",
 						CertificateAuthorityData: []byte(""),
 						Extensions: []clientcmdapiv1.NamedExtension{
 							{
@@ -122,8 +123,8 @@ func main() {
 	//     --login workloadidentity \
 	//     --federated-token-file /var/run/secrets/tokens/azure-identity-token \
 	//     --tenant-id TENANT_ID \
-	//     --client-id CLIENT_ID \
 	//     --authority-host https://login.microsoftonline.com/
+	// with the environment variable AZURE_CLIENT_ID="CLIENT_ID" set.
 	log.Printf("Prepared REST config:\n%+v", restConfig)
 	log.Printf("CLI Args: %s", restConfig.ExecProvider.Args)
 	log.Printf("Env Vars: %+v", restConfig.ExecProvider.Env)

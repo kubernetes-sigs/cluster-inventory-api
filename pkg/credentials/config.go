@@ -31,17 +31,11 @@ const (
 	additionalEnvVarsExtensionKey = "multicluster.x-k8s.io/clusterprofiles/auth/exec/additional-envs"
 )
 
-type AdditionalCLIArgEnvVarExtensionFlag int
-
-const (
-	AdditionalCLIArgEnvVarExtensionFlagIgnore AdditionalCLIArgEnvVarExtensionFlag = iota
-	AdditionalCLIArgEnvVarExtensionFlagAllow
-)
-
 type Provider struct {
-	Name                                string                              `json:"name"`
-	ExecConfig                          *clientcmdapi.ExecConfig            `json:"execConfig"`
-	AdditionalCLIArgEnvVarExtensionFlag AdditionalCLIArgEnvVarExtensionFlag `json:"additionalCLIArgEnvVarExtensionFlag,omitempty"`
+	Name                       string                   `json:"name"`
+	ExecConfig                 *clientcmdapi.ExecConfig `json:"execConfig"`
+	AllowProfileSourcedCLIArgs bool                     `json:"allowProfileSourcedCLIArgs,omitempty"`
+	AllowProfileSourcedEnvVars bool                     `json:"allowProfileSourcedEnvVars,omitempty"`
 }
 
 type CredentialsProvider struct {
@@ -86,7 +80,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	}
 
 	// 2. Get Exec Config
-	execConfig, additionalCLIArgEnvVarsExtFlag := cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
+	execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
 	if execConfig == nil {
 		return nil, fmt.Errorf("no exec credentials found for provider %q", clusterAccessor.Name)
 	}
@@ -95,34 +89,40 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	for idx := range clusterAccessor.Cluster.Extensions {
 		ext := &clusterAccessor.Cluster.Extensions[idx]
 
-		switch {
-		case additionalCLIArgEnvVarsExtFlag == AdditionalCLIArgEnvVarExtensionFlagAllow && ext.Name == additionalCLIArgsExtensionKey:
-			var additionalArgs []string
-			if err := yaml.Unmarshal(ext.Extension.Raw, &additionalArgs); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal additional CLI args extension: %w", err)
-			}
-			execConfig.Args = append(execConfig.Args, additionalArgs...)
-		case additionalCLIArgEnvVarsExtFlag == AdditionalCLIArgEnvVarExtensionFlagAllow && ext.Name == additionalEnvVarsExtensionKey:
-			var additionalEnvs map[string]string
-			if err := yaml.Unmarshal(ext.Extension.Raw, &additionalEnvs); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
-			}
-
-			// Update the value of existing env vars.
-			for idx := range execConfig.Env {
-				env := &execConfig.Env[idx]
-				if _, exists := additionalEnvs[env.Name]; exists {
-					env.Value = additionalEnvs[env.Name]
-					delete(additionalEnvs, env.Name)
+		switch ext.Name {
+		case additionalCLIArgsExtensionKey:
+			if allowProfileSourcedCLIArgs {
+				var additionalArgs []string
+				if err := yaml.Unmarshal(ext.Extension.Raw, &additionalArgs); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal additional CLI args extension: %w", err)
 				}
+				execConfig.Args = append(execConfig.Args, additionalArgs...)
 			}
+		case additionalEnvVarsExtensionKey:
+			if allowProfileSourcedEnvVars {
+				var envVars map[string]string
+				if err := yaml.Unmarshal(ext.Extension.Raw, &envVars); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
+				}
 
-			// Add new env vars.
-			for name, value := range additionalEnvs {
-				execConfig.Env = append(execConfig.Env, clientcmdapi.ExecEnvVar{
-					Name:  name,
-					Value: value,
-				})
+				// Add existing environment variables. Note that if the same variable is specified twice
+				// in both the extension data and the execConfig data, the value in the extension data takes precedence.
+				for idx := range execConfig.Env {
+					env := &execConfig.Env[idx]
+					if _, exists := envVars[env.Name]; !exists {
+						envVars[env.Name] = env.Value
+					}
+				}
+
+				// Write the merged list back to the execConfig.
+				envVarList := make([]clientcmdapi.ExecEnvVar, 0, len(envVars))
+				for name, value := range envVars {
+					envVarList = append(envVarList, clientcmdapi.ExecEnvVar{
+						Name:  name,
+						Value: value,
+					})
+				}
+				execConfig.Env = envVarList
 			}
 		}
 	}
@@ -163,13 +163,13 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	return config, nil
 }
 
-func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(providerName string) (*clientcmdapi.ExecConfig, AdditionalCLIArgEnvVarExtensionFlag) {
+func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(providerName string) (*clientcmdapi.ExecConfig, bool, bool) {
 	for _, provider := range cp.Providers {
 		if provider.Name == providerName {
-			return provider.ExecConfig, provider.AdditionalCLIArgEnvVarExtensionFlag
+			return provider.ExecConfig, provider.AllowProfileSourcedCLIArgs, provider.AllowProfileSourcedEnvVars
 		}
 	}
-	return nil, AdditionalCLIArgEnvVarExtensionFlagIgnore
+	return nil, false, false
 }
 
 // getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
