@@ -83,11 +83,11 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
+	go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/secretreader-plugin/main.go
+	go run ./plugins/secretreader/cmd/plugin/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

@@ -35,7 +35,7 @@ roleRef:
 ## Build
 
 ```bash
-go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
+go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
 ```
 
 ## Usage in a controller

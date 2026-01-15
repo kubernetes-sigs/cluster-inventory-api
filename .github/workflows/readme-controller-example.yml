@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Secret Reader plugin
         run: |
-          go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
+          go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
 
       - name: Build controller example
         run: |

@@ -23,7 +23,7 @@ bash ./examples/controller-example/setup-kind-demo.sh
 ## 2. Build the Secret Reader plugin
 
 ```bash
-go build -o ./bin/secretreader-plugin ./cmd/secretreader-plugin
+go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
 ```
 
 ## 3. Build the controller
