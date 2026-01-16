@@ -9,7 +9,8 @@ set -euo pipefail
 # - the ClusterProfile CR on the hub cluster with secretreader provider pointing to the spoke cluster
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd "${SCRIPT_DIR}/../.." && pwd)
+EXAMPLE_DIR=$(cd "${SCRIPT_DIR}/../.." && pwd)
+REPO_ROOT=$(cd "${EXAMPLE_DIR}/../.." && pwd)
 
 echo "[1/9] Create spoke cluster"
 kind create cluster --name "spoke"
@@ -100,7 +101,7 @@ fi
 
 echo "[6/9] Create hub cluster"
 kind create cluster --name "hub"
-kind get kubeconfig --name "hub" > "${SCRIPT_DIR}/hub.kubeconfig"
+kind get kubeconfig --name "hub" > "${EXAMPLE_DIR}/hub.kubeconfig"
 
 echo "[7/9] Install ClusterProfile CRD on hub cluster"
 kubectl --context "kind-hub" apply -f "${REPO_ROOT}/config/crd/bases/multicluster.x-k8s.io_clusterprofiles.yaml"
@@ -148,3 +149,4 @@ EOF
 )
 
 kubectl --context "kind-hub" patch clusterprofile "spoke-1" --type=merge --subresource=status -p "${STATUS_PATCH}"
+

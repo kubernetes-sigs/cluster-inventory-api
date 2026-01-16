@@ -2,6 +2,10 @@
 
 When executed by a controller, this plugin reads a kubeconfig from a Kubernetes Secret `<NAMESPACE>/<SECRET_NAME>` (from `data[<KEY>]`) and extracts authentication credentials from the specified kubeconfig context (or `current-context` if not specified).
 
+See also:
+
+- Controller example: [`examples/controller-example/plugins/kubeconfig-secretreader/README.md`](../../../../examples/controller-example/plugins/kubeconfig-secretreader/README.md)
+
 It supports:
 
 - token-based authentication (`users[].user.token`), and/or
@@ -40,7 +44,7 @@ roleRef:
 ## Build
 
 ```bash
-go build -o ./bin/kubeconfig-secretreader-plugin ./plugins/kubeconfig-secretreader/cmd/plugin
+make build-kubeconfig-secretreader-plugin
 ```
 
 ## Usage in a controller
