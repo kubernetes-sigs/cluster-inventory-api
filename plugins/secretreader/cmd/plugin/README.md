@@ -2,6 +2,10 @@
 
 When executed by a controller, this plugin reads the `token` from the Kubernetes Secret `<CONSUMER_NAMESPACE>/<CLUSTER_PROFILE_NAME>` and writes an ExecCredential (JSON) to stdout.
 
+See also:
+
+- Controller example: [`examples/controller-example/plugins/secretreader/README.md`](../../../../examples/controller-example/plugins/secretreader/README.md)
+
 The specification follows the Secret Reader plugin KEP.
 
 ## Required RBAC
@@ -35,7 +39,7 @@ roleRef:
 ## Build
 
 ```bash
-go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
+make build-secretreader-plugin
 ```
 
 ## Usage in a controller
