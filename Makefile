@@ -47,11 +47,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./apis/..." paths="./pkg/..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..." paths="./pkg/..."
 	hack/update-codegen.sh
 
 .PHONY: fmt
@@ -164,7 +164,7 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 KUSTOMIZE_VERSION ?= v5.3.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.3
 ENVTEST_VERSION ?= release-0.17
-GOLANGCI_LINT_VERSION ?= v1.54.2
+GOLANGCI_LINT_VERSION ?= v1.64.5
 KB_TOOLS_ARCHIVE_NAME :=kubebuilder-tools-$(ENVTEST_K8S_VERSION)-$(GOHOSTOS)-$(GOHOSTARCH).tar.gz
 KB_TOOLS_ARCHIVE_PATH := /tmp/$(KB_TOOLS_ARCHIVE_NAME)
 export KUBEBUILDER_ASSETS ?=/tmp/kubebuilder/bin
@@ -187,7 +187,12 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
+	@[ -f $(GOLANGCI_LINT) ] || { \
+	set -e; \
+	echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)" ;\
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCALBIN) $(GOLANGCI_LINT_VERSION) ;\
+	mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT) ;\
+	}
 
 # download the kubebuilder-tools to get kube-apiserver binaries from it
 .PHONY: ensure-kubebuilder-tools

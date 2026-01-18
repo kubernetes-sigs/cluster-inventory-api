@@ -23,26 +23,26 @@ import (
 	apisv1alpha1 "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned/typed/apis/v1alpha1"
 )
 
-// fakeClusterProfiles implements ClusterProfileInterface
-type fakeClusterProfiles struct {
-	*gentype.FakeClientWithList[*v1alpha1.ClusterProfile, *v1alpha1.ClusterProfileList]
+// fakePlacementDecisions implements PlacementDecisionInterface
+type fakePlacementDecisions struct {
+	*gentype.FakeClientWithList[*v1alpha1.PlacementDecision, *v1alpha1.PlacementDecisionList]
 	Fake *FakeApisV1alpha1
 }
 
-func newFakeClusterProfiles(fake *FakeApisV1alpha1, namespace string) apisv1alpha1.ClusterProfileInterface {
-	return &fakeClusterProfiles{
-		gentype.NewFakeClientWithList[*v1alpha1.ClusterProfile, *v1alpha1.ClusterProfileList](
+func newFakePlacementDecisions(fake *FakeApisV1alpha1, namespace string) apisv1alpha1.PlacementDecisionInterface {
+	return &fakePlacementDecisions{
+		gentype.NewFakeClientWithList[*v1alpha1.PlacementDecision, *v1alpha1.PlacementDecisionList](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("clusterprofiles"),
-			v1alpha1.SchemeGroupVersion.WithKind("ClusterProfile"),
-			func() *v1alpha1.ClusterProfile { return &v1alpha1.ClusterProfile{} },
-			func() *v1alpha1.ClusterProfileList { return &v1alpha1.ClusterProfileList{} },
-			func(dst, src *v1alpha1.ClusterProfileList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.ClusterProfileList) []*v1alpha1.ClusterProfile {
+			v1alpha1.SchemeGroupVersion.WithResource("placementdecisions"),
+			v1alpha1.SchemeGroupVersion.WithKind("PlacementDecision"),
+			func() *v1alpha1.PlacementDecision { return &v1alpha1.PlacementDecision{} },
+			func() *v1alpha1.PlacementDecisionList { return &v1alpha1.PlacementDecisionList{} },
+			func(dst, src *v1alpha1.PlacementDecisionList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.PlacementDecisionList) []*v1alpha1.PlacementDecision {
 				return gentype.ToPointerSlice(list.Items)
 			},
-			func(list *v1alpha1.ClusterProfileList, items []*v1alpha1.ClusterProfile) {
+			func(list *v1alpha1.PlacementDecisionList, items []*v1alpha1.PlacementDecision) {
 				list.Items = gentype.FromPointerSlice(items)
 			},
 		),

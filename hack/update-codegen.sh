@@ -18,12 +18,18 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-set -o errexit
-set -o nounset
-set -o pipefail
-
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
-CODEGEN_PKG=${CODEGEN_PKG:-$(cd "${SCRIPT_ROOT}"; ls -d -1 ./vendor/k8s.io/code-generator 2>/dev/null || echo ../code-generator)}
+
+cd "${SCRIPT_ROOT}"
+go mod download k8s.io/code-generator
+
+# Find code-generator from go modules
+CODEGEN_PKG=${CODEGEN_PKG:-$(go list -m -f '{{.Dir}}' k8s.io/code-generator)}
+
+if [[ -z "${CODEGEN_PKG}" ]]; then
+  echo "ERROR: Could not find k8s.io/code-generator module"
+  exit 1
+fi
 
 source "${CODEGEN_PKG}/kube_codegen.sh"
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 type ApisV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ClusterProfilesGetter
+	PlacementDecisionsGetter
 }
 
 // ApisV1alpha1Client is used to interact with features provided by the apis group.
@@ -37,6 +38,10 @@ type ApisV1alpha1Client struct {
 
 func (c *ApisV1alpha1Client) ClusterProfiles(namespace string) ClusterProfileInterface {
 	return newClusterProfiles(c, namespace)
+}
+
+func (c *ApisV1alpha1Client) PlacementDecisions(namespace string) PlacementDecisionInterface {
+	return newPlacementDecisions(c, namespace)
 }
 
 // NewForConfig creates a new ApisV1alpha1Client for the given config.
