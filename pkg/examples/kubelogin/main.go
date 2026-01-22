@@ -42,8 +42,8 @@ func main() {
 				ProvideClusterInfo: false,
 				InteractiveMode:    clientcmdapi.NeverExecInteractiveMode,
 			},
-			AllowProfileSourcedCLIArgs: true,
-			AllowProfileSourcedEnvVars: true,
+			ProfileSourcedCLIArgsPolicy: credentials.ProfileSourcedCLIArgsPolicyAppend,
+			ProfileSourcedEnvVarsPolicy: credentials.ProfileSourcedEnvVarsPolicyReplace,
 		},
 	}
 	cps := credentials.New(providers)
@@ -92,13 +92,13 @@ func main() {
 						CertificateAuthorityData: []byte(""),
 						Extensions: []clientcmdapiv1.NamedExtension{
 							{
-								Name: "multicluster.x-k8s.io/clusterprofiles/auth/exec/additional-args",
+								Name: "clusterprofiles.multicluster.x-k8s.io/exec/additional-args",
 								Extension: runtime.RawExtension{
 									Raw: additionalArgsYAML,
 								},
 							},
 							{
-								Name: "multicluster.x-k8s.io/clusterprofiles/auth/exec/additional-envs",
+								Name: "clusterprofiles.multicluster.x-k8s.io/exec/additional-envs",
 								Extension: runtime.RawExtension{
 									Raw: additionalEnvVarsYAML,
 								},
