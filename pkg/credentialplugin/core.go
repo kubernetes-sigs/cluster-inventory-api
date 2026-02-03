@@ -39,7 +39,10 @@ func readExecInfo() (*clientauthenticationv1.ExecCredential, error) {
 // Provider defines the common interface for all credential plugins
 type Provider interface {
 	Name() string
-	GetToken(ctx context.Context, in clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error)
+	GetToken(
+		ctx context.Context,
+		in clientauthenticationv1.ExecCredential,
+	) (clientauthenticationv1.ExecCredentialStatus, error)
 }
 
 // Run is the common entrypoint used by all provider-specific binaries
