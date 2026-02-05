@@ -81,9 +81,20 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 ##@ Build
 
-.PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+.PHONY: build-secretreader-plugin
+build-secretreader-plugin: manifests generate fmt vet ## Build secretreader plugin binary.
 	go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
+
+.PHONY: build-kubeconfig-secretreader-plugin
+build-kubeconfig-secretreader-plugin: manifests generate fmt vet ## Build kubeconfig secretreader plugin binary.
+	go build -o ./bin/kubeconfig-secretreader-plugin ./plugins/kubeconfig-secretreader/cmd/plugin
+
+.PHONY: build
+build: build-secretreader-plugin build-kubeconfig-secretreader-plugin ## Build all plugin binaries.
+
+.PHONY: build-controller-example
+build-controller-example: ## Build controller example binary.
+	go build -o ./examples/controller-example/controller-example.bin ./examples/controller-example
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
