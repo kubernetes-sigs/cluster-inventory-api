@@ -37,7 +37,7 @@ allowing operations tools and external consumers to define and manage clusters a
 
 ## PlacementDecision API
 
-The [PlacementDecision API](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5313-placement-decision/README.md)
+The [PlacementDecision API](https://github.com/kubernetes/enhancements/blob/master/keps/sig-multicluster/5313-placement-decision-api/README.md)
 is a vendor-neutral API that standardizes the output of multicluster placement calculations.
 A `PlacementDecision` object is data only: a namespaced list of chosen clusters whose referenced names
 must map one-to-one to `ClusterProfile`s. Any scheduler can emit the object and any consumer can watch it.
