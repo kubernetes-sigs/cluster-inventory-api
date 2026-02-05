@@ -13,6 +13,23 @@ It supports:
 
 It then writes a **minimal** `ExecCredential` (JSON) containing only `apiVersion`, `kind`, and `status` to stdout.
 
+## Support matrix
+
+| Feature | Status | Config field | Notes |
+|--------|--------|--------------|-------|
+| Secret name | Supported | `name` (required) | Set by cluster manager in `accessProviders[].cluster.extensions` |
+| Secret namespace | Supported | `namespace` (optional) | Omitted → inferred (kubeconfig context → in-cluster namespace file → `default`) |
+| Secret data key | Supported | `key` (required) | Key in `Secret.data` holding the kubeconfig |
+| Kubeconfig context | Supported | `context` (optional) | Omitted → `current-context` |
+| Token auth | Supported | — | `users[].user.token` |
+| Client cert/key (inline) | Supported | — | `client-certificate-data` + `client-key-data` only; output as PEM |
+| Client cert/key (file path) | Not supported | — | Use `*-data` in kubeconfig |
+| Username/password | Not supported | — | Not implemented |
+| TokenFile | Not supported | — | Not implemented |
+| Kubeconfig `extensions` | Not supported | — | Plugin rejects kubeconfigs that use extensions |
+| CA/key/cert in separate Secret keys | Not supported | — | Only inline `*-data` in the kubeconfig |
+| Kubeconfig `user.exec` | Not supported | — | Use exec in `accessProviders` instead; see [Security considerations](#security-considerations) |
+
 ## Required RBAC
 
 ```yaml
@@ -181,3 +198,8 @@ The plugin returns a `ExecCredential` with the authentication credentials found 
   }
 }
 ```
+
+## Security considerations
+
+- This plugin **only reads** a Secret, parses the kubeconfig **statically**, and outputs an `ExecCredential`. It does not execute any binary from the kubeconfig.
+- **Kubeconfig `user.exec` is not supported.** If exec-based authentication is needed, configure it in the cluster manager’s `accessProviders` (exec plugin) so that execution and lifecycle are explicit and auditable.
