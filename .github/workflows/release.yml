@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  packages: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-slim
+    outputs:
+      plugins: ${{ steps.scan.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: ghcr.io/kubernetes-sigs/cluster-inventory-api
+        run: |
+          result='[]'
+          for d in plugins/*/; do
+            name=$(basename "$d")
+            [ -d "plugins/$name/cmd/plugin" ] || continue
+            [ -f "plugins/$name/VERSION" ] || continue
+            version=$(tr -d '[:space:]' < "plugins/$name/VERSION")
+            [ -n "$version" ] || continue
+            if gh api "/orgs/kubernetes-sigs/packages/container/cluster-inventory-api%2F${name}/versions" \
+                --jq ".[].metadata.container.tags[]" 2>/dev/null | grep -qx "${version}"; then
+              echo "Skip ${name}: ${REGISTRY}/${name}:${version} already exists"
+              continue
+            fi
+            result=$(echo "$result" | jq -c --arg n "$name" '. + [$n]')
+          done
+          echo "plugins=${result}" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: discover
+    if: needs.discover.outputs.plugins != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ko-build/setup-ko@v0.9
+
+      - name: Release ${{ matrix.plugin }}
+        env:
+          REGISTRY: ghcr.io/kubernetes-sigs/cluster-inventory-api
+        run: hack/release-plugins.sh "${{ matrix.plugin }}"
