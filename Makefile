@@ -89,8 +89,12 @@ build-secretreader-plugin: manifests generate fmt vet ## Build secretreader plug
 build-kubeconfig-secretreader-plugin: manifests generate fmt vet ## Build kubeconfig secretreader plugin binary.
 	go build -o ./bin/kubeconfig-secretreader-plugin ./plugins/kubeconfig-secretreader/cmd/plugin
 
+.PHONY: build-eks-aws-auth-plugin
+build-eks-aws-auth-plugin: ## Build eks-aws-auth plugin binary.
+	cd plugins/eks-aws-auth && go build -o ../../bin/eks-aws-auth-plugin ./cmd/plugin
+
 .PHONY: build
-build: build-secretreader-plugin build-kubeconfig-secretreader-plugin ## Build all plugin binaries.
+build: build-secretreader-plugin build-kubeconfig-secretreader-plugin build-eks-aws-auth-plugin ## Build all plugin binaries.
 
 .PHONY: build-controller-example
 build-controller-example: ## Build controller example binary.
