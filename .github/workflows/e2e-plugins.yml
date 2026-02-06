@@ -56,9 +56,6 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Setup ko
-        uses: ko-build/setup-ko@v0.9
-
       - name: Run controller example in-cluster (image volume plugin)
         run: |
           hack/e2e-controller-incluster.sh ${{ matrix.plugin_name }} ${{ matrix.provider_name }}

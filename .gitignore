@@ -8,6 +8,9 @@ bin/*
 vendor/*
 Dockerfile.cross
 
+# Environment configuration files
+.envrc
+
 # Test binary, built with `go test -c`
 *.test
 

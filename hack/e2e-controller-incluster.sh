@@ -29,9 +29,8 @@ PROVIDER_NAME="${2:?usage: e2e-controller-incluster.sh <plugin_name> <provider_n
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-VERSION=$(tr -d '[:space:]' < "plugins/${PLUGIN_NAME}/VERSION")
-PLUGIN_IMAGE="ko.local/${PLUGIN_NAME}:${VERSION}"
-CONTROLLER_IMAGE="ko.local/controller-example:e2e"
+PLUGIN_IMAGE="localhost/${PLUGIN_NAME}:e2e"
+CONTROLLER_IMAGE="localhost/controller-example:e2e"
 DEPLOY_NAME="controller-example"
 
 echo "--- Build plugin OCI image and load into hub"
@@ -44,8 +43,11 @@ docker buildx build \
 kind load docker-image "${PLUGIN_IMAGE}" --name hub
 
 echo "--- Build controller-example OCI image and load into hub"
-KO_DOCKER_REPO="ko.local/controller-example" ko build "./examples/controller-example" \
-	--bare --tags e2e
+docker buildx build \
+	-f hack/Dockerfile.controller-example \
+	-t "${CONTROLLER_IMAGE}" \
+	--load \
+	.
 kind load docker-image "${CONTROLLER_IMAGE}" --name hub
 
 echo "--- Patch ClusterProfile spoke-1 so spoke server is reachable from hub (spoke-control-plane:6443)"
