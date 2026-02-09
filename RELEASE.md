@@ -2,7 +2,7 @@
 
 ## Plugin OCI images
 
-Plugin binaries are released as OCI images built with [ko](https://ko.build). Each plugin is versioned and released independently.
+Plugin binaries are released as OCI images built with [Docker Buildx](https://docs.docker.com/build/buildx/). Each plugin is versioned and released independently. The plugin binary is placed under `/bin/<plugin_name>-plugin` (e.g. `/bin/secretreader-plugin`); when the image is mounted at `/plugin`, the executable path is `/plugin/bin/<plugin_name>-plugin`.
 
 ### Versioning
 
@@ -20,9 +20,16 @@ Plugin binaries are released as OCI images built with [ko](https://ko.build). Ea
    - `ghcr.io/kubernetes-sigs/cluster-inventory-api/<plugin_name>:<VERSION>`
    - Example: `ghcr.io/kubernetes-sigs/cluster-inventory-api/secretreader:0.1.0`
 
+### SBOM and provenance
+
+Each released image includes attestations as OCI referrers:
+
+- **SBOM** (SPDX): `cosign download sbom ghcr.io/kubernetes-sigs/cluster-inventory-api/<plugin>:<VERSION>`
+- **Provenance** (SLSA-style): attached by Buildx; verify with [cosign verify attestation](https://docs.sigstore.dev/cosign/verify-attestation/) or your preferred policy engine.
+
 ### Local build (no push)
 
-- Run `make snapshot` to build all plugin images locally with ko. Images are loaded into the local Docker daemon as `ko.local/<plugin_name>/...`.
+- Run `make snapshot` to build all plugin images locally with Buildx. Images are loaded into the local Docker daemon as `ko.local/<plugin_name>:latest`.
 
 ## Project release (optional)
 

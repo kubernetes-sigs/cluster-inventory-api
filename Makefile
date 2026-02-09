@@ -12,9 +12,6 @@ endif
 GOHOSTOS ?=$(shell go env GOHOSTOS)
 GOHOSTARCH ?=$(shell go env GOHOSTARCH)
 
-# KO is the ko binary for building plugin OCI images.
-KO ?= ko
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -98,12 +95,14 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./plugins/secretreader/cmd/plugin/main.go
 
 .PHONY: snapshot
-snapshot: ## Build plugin OCI images locally (no push). Images load into local docker as ko.local/<plugin>/...
+snapshot: ## Build plugin OCI images locally (no push). Images load into local docker as ko.local/<plugin>:latest
 	@for p in plugins/*/cmd/plugin; do \
 		[ -d "$$p" ] || continue; \
 		name=$$(echo "$$p" | cut -d/ -f2); \
 		echo "Building $$name..."; \
-		KO_DOCKER_REPO=ko.local/$$name $(KO) build ./$$p --bare --platform=linux/amd64,linux/arm64; \
+		docker buildx build -f hack/Dockerfile.plugin \
+			--build-arg PLUGIN_NAME=$$name \
+			-t ko.local/$$name:latest --load .; \
 	done
 
 .PHONY: build-installer

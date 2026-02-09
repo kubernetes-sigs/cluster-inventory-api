@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build and push a single plugin OCI image with ko.
+# Build and push a single plugin OCI image with buildx (binary at /bin/<name>-plugin).
 # Usage: release-plugins.sh <plugin-name>
+# Requires: REGISTRY (e.g. ghcr.io/kubernetes-sigs/cluster-inventory-api), buildx.
 
 set -o errexit
 set -o nounset
@@ -9,5 +10,12 @@ set -o pipefail
 name="$1"
 version=$(tr -d '[:space:]' < "plugins/${name}/VERSION")
 
-KO_DOCKER_REPO="${REGISTRY}/${name}" ko build "./plugins/${name}/cmd/plugin" \
-  --bare --tags "${version}" --platform=linux/amd64,linux/arm64 --push
+docker buildx build \
+	-f hack/Dockerfile.plugin \
+	--build-arg "PLUGIN_NAME=${name}" \
+	--platform=linux/amd64,linux/arm64 \
+	-t "${REGISTRY}/${name}:${version}" \
+	--push \
+	--attest type=provenance,mode=max \
+	--attest type=sbom \
+	.
