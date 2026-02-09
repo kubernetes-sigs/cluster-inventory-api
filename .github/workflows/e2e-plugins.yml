@@ -13,20 +13,18 @@ concurrency:
 
 jobs:
   e2e-plugins:
-    name: Run controller example (uses ${{ matrix.plugin_id }})
+    name: Run controller example (plugin ${{ matrix.plugin_name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       matrix:
         include:
-          - plugin_id: Secret Reader plugin
+          - plugin_name: secretreader
+            provider_name: secretreader
             setup_script: ./examples/controller-example/plugins/secretreader/setup-kind-demo.sh
-            make_plugin_target: build-secretreader-plugin
-            provider_config: ./examples/controller-example/plugins/secretreader/provider-config.json
-          - plugin_id: Kubeconfig Secret Reader plugin
+          - plugin_name: kubeconfig-secretreader
+            provider_name: kubeconfig-secretreader
             setup_script: ./examples/controller-example/plugins/kubeconfig-secretreader/setup-kind-demo.sh
-            make_plugin_target: build-kubeconfig-secretreader-plugin
-            provider_config: ./examples/controller-example/plugins/kubeconfig-secretreader/provider-config.json
 
     steps:
       - name: Checkout
@@ -49,27 +47,21 @@ jobs:
           kind version
           kubectl version --client=true
           go version
+          jq --version
 
       - name: Create hub/spoke kind clusters + bootstrap resources
         run: |
           bash ${{ matrix.setup_script }}
 
-      - name: Build plugin
-        run: |
-          make ${{ matrix.make_plugin_target }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build controller example
-        run: |
-          make build-controller-example
+      - name: Setup ko
+        uses: ko-build/setup-ko@v0.9
 
-      - name: Execute controller example
-        env:
-          KUBECONFIG: ./examples/controller-example/hub.kubeconfig
+      - name: Run controller example in-cluster (image volume plugin)
         run: |
-          ./examples/controller-example/controller-example.bin \
-            -clusterprofile-provider-file ${{ matrix.provider_config }} \
-            -namespace default \
-            -clusterprofile spoke-1
+          hack/e2e-controller-incluster.sh ${{ matrix.plugin_name }} ${{ matrix.provider_name }}
 
       - name: Cleanup kind clusters
         if: always()
