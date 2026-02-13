@@ -216,7 +216,8 @@ spec:
                 description: |-
                   CredentialProviders is a list of cluster access providers that can provide access
                   information for clusters.
-                  Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided, both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+                  Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided,
+                  both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
                 items:
                   description: |-
                     AccessProvider defines how to access the cluster.
@@ -316,12 +317,14 @@ spec:
                     Property defines the data structure to represent a property of a cluster.
                     It contains a name/value pair and the last observed time of the property on the cluster.
                     This property can store various configurable details and metrics of a cluster,
-                    which may include information such as the entry point of the cluster, types of nodes, location, etc. according to KEP 4322.
+                    which may include information such as the entry point of the cluster, types of nodes, location,
+                    etc. according to KEP 4322.
                   properties:
                     lastObservedTime:
                       description: |-
                         LastObservedTime is the last time the property was observed on the corresponding cluster.
-                        The value is the timestamp when the property was observed not the time when the property was updated in the cluster-profile.
+                        The value is the timestamp when the property was observed not the time when the property
+                        was updated in the cluster-profile.
                       format: date-time
                       type: string
                     name:
