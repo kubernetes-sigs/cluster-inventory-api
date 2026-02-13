@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/rest"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -45,7 +45,7 @@ func TestIntegration(t *testing.T) {
 	ginkgo.RunSpecs(t, "API Validation Integration Suite")
 }
 
-var _ = ginkgo.BeforeSuite(func(done ginkgo.Done) {
+var _ = ginkgo.BeforeSuite(func() {
 	ginkgo.By("bootstrapping test environment")
 
 	// start a kube-apiserver
@@ -74,9 +74,7 @@ var _ = ginkgo.BeforeSuite(func(done ginkgo.Done) {
 			},
 		}, metav1.CreateOptions{})
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
-
-	close(done)
-}, 300)
+})
 
 var _ = ginkgo.AfterSuite(func() {
 	ginkgo.By("tearing down the test environment")
