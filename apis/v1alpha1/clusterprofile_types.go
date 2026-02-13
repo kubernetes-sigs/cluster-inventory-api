@@ -55,6 +55,8 @@ type ClusterManager struct {
 type ClusterProfileStatus struct {
 	// Conditions contains the different condition statuses for this cluster.
 	// +optional
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions"`
 
 	// Version defines the version information of the cluster.
@@ -69,6 +71,8 @@ type ClusterProfileStatus struct {
 	// - Standard names from ClusterProperty resources
 	// - Custom names defined by cluster managers
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Properties []Property `json:"properties,omitempty"`
 
 	// CredentialProviders is a list of cluster access providers that can provide access
@@ -76,11 +80,15 @@ type ClusterProfileStatus struct {
 	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided, both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
 	// +optional
 	// +deprecated
+	// +listType=map
+	// +listMapKey=name
 	CredentialProviders []CredentialProvider `json:"credentialProviders,omitempty"`
 
 	// AccessProviders is a list of cluster access providers that can provide access
 	// information for clusters.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	AccessProviders []AccessProvider `json:"accessProviders,omitempty"`
 }
 

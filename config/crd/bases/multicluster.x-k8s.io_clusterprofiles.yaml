@@ -148,6 +148,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 description: Conditions contains the different condition statuses
                   for this cluster.
@@ -206,6 +209,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               credentialProviders:
                 description: |-
                   CredentialProviders is a list of cluster access providers that can provide access
@@ -293,6 +299,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               properties:
                 description: |-
                   Properties defines cluster characteristics through a list of Property objects.
@@ -332,6 +341,9 @@ spec:
                   - value
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               version:
                 description: Version defines the version information of the cluster.
                 properties:
