@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: clusterprofiles.multicluster.x-k8s.io
 spec:
   group: multicluster.x-k8s.io
@@ -148,6 +148,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
                 description: Conditions contains the different condition statuses
                   for this cluster.
@@ -206,11 +209,15 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               credentialProviders:
                 description: |-
                   CredentialProviders is a list of cluster access providers that can provide access
                   information for clusters.
-                  Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided, both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+                  Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided,
+                  both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
                 items:
                   description: |-
                     AccessProvider defines how to access the cluster.
@@ -293,6 +300,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               properties:
                 description: |-
                   Properties defines cluster characteristics through a list of Property objects.
@@ -307,12 +317,14 @@ spec:
                     Property defines the data structure to represent a property of a cluster.
                     It contains a name/value pair and the last observed time of the property on the cluster.
                     This property can store various configurable details and metrics of a cluster,
-                    which may include information such as the entry point of the cluster, types of nodes, location, etc. according to KEP 4322.
+                    which may include information such as the entry point of the cluster, types of nodes, location,
+                    etc. according to KEP 4322.
                   properties:
                     lastObservedTime:
                       description: |-
                         LastObservedTime is the last time the property was observed on the corresponding cluster.
-                        The value is the timestamp when the property was observed not the time when the property was updated in the cluster-profile.
+                        The value is the timestamp when the property was observed not the time when the property
+                        was updated in the cluster-profile.
                       format: date-time
                       type: string
                     name:
@@ -332,6 +344,9 @@ spec:
                   - value
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               version:
                 description: Version defines the version information of the cluster.
                 properties:
