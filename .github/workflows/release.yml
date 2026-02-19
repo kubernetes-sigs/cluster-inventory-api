@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-slim
+    outputs:
+      plugins: ${{ steps.scan.outputs.plugins }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: ghcr.io/${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          result='[]'
+          for d in plugins/*/; do
+            name=$(basename "$d")
+            [ -d "plugins/$name/cmd/plugin" ] || continue
+            encoded_pkg="${REPO_NAME}%2F${name}"
+            tags=$(gh api "/orgs/${OWNER}/packages/container/${encoded_pkg}/versions" \
+                --jq '.[].metadata.container.tags[]' 2>/dev/null || \
+              gh api "/users/${OWNER}/packages/container/${encoded_pkg}/versions" \
+                --jq '.[].metadata.container.tags[]' 2>/dev/null || true)
+            if echo "$tags" | grep -qx "${version}"; then
+              echo "Skip ${name}: ${REGISTRY}/${name}:${version} already exists"
+              continue
+            fi
+            result=$(echo "$result" | jq -c --arg n "$name" '. + [$n]')
+          done
+          echo "plugins=${result}" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: discover
+    if: needs.discover.outputs.plugins != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Release ${{ matrix.plugin }}
+        env:
+          REGISTRY: ghcr.io/${{ github.repository }}
+          VERSION: ${{ needs.discover.outputs.version }}
+        run: hack/release-plugins.sh "${{ matrix.plugin }}"
