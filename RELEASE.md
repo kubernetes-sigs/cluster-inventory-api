@@ -25,14 +25,14 @@ Each released image includes attestations as OCI referrers:
 
 ### Local build (no push)
 
-- Run `make snapshot` to build all plugin images locally with Buildx. Images are loaded into the local Docker daemon as `<plugin_name>:latest`.
+- Run `make docker-build PLUGIN_NAME=<name>` to build a single plugin image locally (e.g. `make docker-build PLUGIN_NAME=secretreader`). The image is tagged as `<plugin_name>:latest` by default.
 
 ## Project release (optional)
 
 For a high-level project release (e.g. announcing a set of plugin versions):
 
 1. Open an issue proposing a release with a changelog since the last release.
-2. All [OWNERS](OWNERS) must LGTM the release.
+2. The release proposal follows a **lazy consensus** model: the proposal is approved unless an [OWNER](OWNERS) objects within **two weeks** of the issue being opened. Silence is treated as approval.
 3. An OWNER pushes a release tag (e.g. `v1.0.0`) to trigger the Release workflow.
 4. Close the release issue.
 5. Optionally send an announcement (e.g. to the project mailing list or Slack).
