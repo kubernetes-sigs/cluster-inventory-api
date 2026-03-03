@@ -10,6 +10,12 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+# CONTAINER_TOOL defines the container tool to be used for building images.
+# Be aware that the target commands are only tested with Docker which is
+# scaffolded by default. However, you might want to replace it to use other
+# tools. (i.e. podman)
+CONTAINER_TOOL ?= docker
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -92,16 +98,47 @@ build-controller-example: ## Build controller example binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./plugins/secretreader/cmd/plugin/main.go
 
-.PHONY: snapshot
-snapshot: ## Build plugin OCI images locally (no push). Images load into local docker as <plugin>:latest
-	@for p in plugins/*/cmd/plugin; do \
-		[ -d "$$p" ] || continue; \
-		name=$$(echo "$$p" | cut -d/ -f2); \
-		echo "Building $$name..."; \
-		docker buildx build -f hack/Dockerfile.plugin \
-			--build-arg PLUGIN_NAME=$$name \
-			-t $$name:latest --load .; \
-	done
+# PLUGIN_NAME specifies which plugin to build (e.g. PLUGIN_NAME=secretreader).
+# Required for docker-build, docker-push, and docker-buildx targets.
+PLUGIN_NAME ?=
+REGISTRY ?=
+VERSION ?= latest
+ifdef REGISTRY
+PLUGIN_IMG = $(REGISTRY)/$(PLUGIN_NAME):$(VERSION)
+else
+PLUGIN_IMG = $(PLUGIN_NAME):$(VERSION)
+endif
+
+# If you wish to build the plugin image targeting other platforms you can use the --platform flag.
+# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
+# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+.PHONY: docker-build
+docker-build: ## Build docker image for a plugin (PLUGIN_NAME required, e.g. make docker-build PLUGIN_NAME=secretreader).
+	$(CONTAINER_TOOL) build -f hack/Dockerfile.plugin \
+		--build-arg PLUGIN_NAME=$(PLUGIN_NAME) \
+		-t $(PLUGIN_IMG) .
+
+.PHONY: docker-push
+docker-push: ## Push docker image for a plugin (PLUGIN_NAME required).
+	$(CONTAINER_TOOL) push $(PLUGIN_IMG)
+
+# PLATFORMS defines the target platforms for the plugin image be built to provide support to multiple
+# architectures. (i.e. make docker-buildx PLUGIN_NAME=secretreader REGISTRY=myregistry VERSION=0.0.1). To use this option you need to:
+# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
+# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+# - be able to push the image to your registry (i.e. if you do not set a valid value via REGISTRY=<myregistry> then the export will fail)
+# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+.PHONY: docker-buildx
+docker-buildx: ## Build and push docker image for cross-platform support (PLUGIN_NAME, REGISTRY, VERSION required).
+	$(CONTAINER_TOOL) buildx build -f hack/Dockerfile.plugin \
+		--build-arg PLUGIN_NAME=$(PLUGIN_NAME) \
+		--platform=$(PLATFORMS) \
+		-t $(PLUGIN_IMG) \
+		--push \
+		--attest type=provenance,mode=max \
+		--attest type=sbom \
+		.
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
