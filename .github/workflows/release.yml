@@ -5,12 +5,11 @@ on:
     tags: ['v*']
   workflow_dispatch: {}
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   discover:
+    permissions:
+      contents: read
+      packages: read
     runs-on: ubuntu-slim
     outputs:
       plugins: ${{ steps.scan.outputs.plugins }}
@@ -47,6 +46,10 @@ jobs:
           echo "plugins=${result}" >> "$GITHUB_OUTPUT"
 
   release:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # Required for cosign keyless signing via GitHub OIDC
     needs: discover
     if: needs.discover.outputs.plugins != '[]'
     runs-on: ubuntu-latest
@@ -65,6 +68,8 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - uses: sigstore/cosign-installer@v3
+
       - name: Release ${{ matrix.plugin }}
         run: >-
           make docker-buildx
@@ -72,3 +77,16 @@ jobs:
           REGISTRY=ghcr.io/${{ github.repository }}
           VERSION=${{ needs.discover.outputs.version }}
           PLATFORMS=linux/amd64,linux/arm64
+
+      - name: Get image digest
+        id: digest
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.plugin }}:${{ needs.discover.outputs.version }}
+        run: |
+          digest="sha256:$(docker buildx imagetools inspect "${IMAGE}" --raw | sha256sum | cut -d ' ' -f 1)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign container image with cosign
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.plugin }}@${{ steps.digest.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}"
