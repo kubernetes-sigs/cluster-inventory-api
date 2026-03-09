@@ -16,6 +16,30 @@ Plugin OCI images are tagged with the same version as the repository release tag
    - `ghcr.io/kubernetes-sigs/cluster-inventory-api/<plugin_name>:<version>`
    - Example: `ghcr.io/kubernetes-sigs/cluster-inventory-api/secretreader:1.0.0`
 
+### Image signing
+
+Each released image is signed using [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) keyless signing with GitHub Actions OIDC. No long-lived signing keys are used; an ephemeral key pair is generated for each signing event and the public key is recorded in the [Sigstore transparency log](https://docs.sigstore.dev/logging/overview/).
+
+#### Verifying image signatures
+
+Install [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/) and run:
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp="^https://github\.com/kubernetes-sigs/cluster-inventory-api/\.github/workflows/release\.yml@refs/tags/v.*$" \
+  ghcr.io/kubernetes-sigs/cluster-inventory-api/<plugin>:<version>
+```
+
+Example:
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp="^https://github\.com/kubernetes-sigs/cluster-inventory-api/\.github/workflows/release\.yml@refs/tags/v.*$" \
+  ghcr.io/kubernetes-sigs/cluster-inventory-api/secretreader:0.1.0
+```
+
 ### SBOM and provenance
 
 Each released image includes attestations as OCI referrers:
