@@ -56,7 +56,7 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 	// 2. Create a new Providers instance and unmarshal the data into it
 	var providers CredentialsProvider
 	if err := json.Unmarshal(data, &providers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal credential proviers: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal credential providers: %w", err)
 	}
 
 	// 3. Return the populated credentials
