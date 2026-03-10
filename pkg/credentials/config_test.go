@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			cp, err := NewFromFile(invalidJSONFile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(cp).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal credential proviers"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal credential providers"))
 		})
 
 		ginkgo.It("should handle empty JSON file", func() {
