@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			cp, err := NewFromFile(invalidJSONFile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(cp).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal credential proviers"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal credential providers"))
 		})
 
 		ginkgo.It("should handle empty JSON file", func() {

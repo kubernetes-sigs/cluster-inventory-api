@@ -1,7 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST_K8S_VERSION = 1.35.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -9,8 +9,6 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
-GOHOSTOS ?=$(shell go env GOHOSTOS)
-GOHOSTARCH ?=$(shell go env GOHOSTARCH)
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
@@ -47,11 +45,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./apis/..." paths="./pkg/..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..." paths="./pkg/..."
 	hack/update-codegen.sh
 
 .PHONY: fmt
@@ -63,7 +61,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ensure-kubebuilder-tools ## Run tests.
+test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
@@ -81,41 +79,66 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 ##@ Build
 
-.PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+.PHONY: build-secretreader-plugin
+build-secretreader-plugin: manifests generate fmt vet ## Build secretreader plugin binary.
 	go build -o ./bin/secretreader-plugin ./plugins/secretreader/cmd/plugin
+
+.PHONY: build-kubeconfig-secretreader-plugin
+build-kubeconfig-secretreader-plugin: manifests generate fmt vet ## Build kubeconfig secretreader plugin binary.
+	go build -o ./bin/kubeconfig-secretreader-plugin ./plugins/kubeconfig-secretreader/cmd/plugin
+
+.PHONY: build
+build: build-secretreader-plugin build-kubeconfig-secretreader-plugin ## Build all plugin binaries.
+
+.PHONY: build-controller-example
+build-controller-example: ## Build controller example binary.
+	go build -o ./examples/controller-example/controller-example.bin ./examples/controller-example
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./plugins/secretreader/cmd/plugin/main.go
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
+# PLUGIN_NAME specifies which plugin to build (e.g. PLUGIN_NAME=secretreader).
+# Required for docker-build, docker-push, and docker-buildx targets.
+PLUGIN_NAME ?=
+REGISTRY ?=
+VERSION ?= latest
+ifdef REGISTRY
+PLUGIN_IMG = $(REGISTRY)/$(PLUGIN_NAME):$(VERSION)
+else
+PLUGIN_IMG = $(PLUGIN_NAME):$(VERSION)
+endif
+
+# If you wish to build the plugin image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+docker-build: ## Build docker image for a plugin (PLUGIN_NAME required, e.g. make docker-build PLUGIN_NAME=secretreader).
+	$(CONTAINER_TOOL) build -f hack/Dockerfile.plugin \
+		--build-arg PLUGIN_NAME=$(PLUGIN_NAME) \
+		-t $(PLUGIN_IMG) .
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push ${IMG}
+docker-push: ## Push docker image for a plugin (PLUGIN_NAME required).
+	$(CONTAINER_TOOL) push $(PLUGIN_IMG)
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
+# PLATFORMS defines the target platforms for the plugin image be built to provide support to multiple
+# architectures. (i.e. make docker-buildx PLUGIN_NAME=secretreader REGISTRY=myregistry VERSION=0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
+# - be able to push the image to your registry (i.e. if you do not set a valid value via REGISTRY=<myregistry> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
-	$(CONTAINER_TOOL) buildx use project-v3-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm project-v3-builder
-	rm Dockerfile.cross
+docker-buildx: ## Build and push docker image for cross-platform support (PLUGIN_NAME, REGISTRY, VERSION required).
+	$(CONTAINER_TOOL) buildx build -f hack/Dockerfile.plugin \
+		--build-arg PLUGIN_NAME=$(PLUGIN_NAME) \
+		--platform=$(PLATFORMS) \
+		-t $(PLUGIN_IMG) \
+		--push \
+		--attest type=provenance,mode=max \
+		--attest type=sbom \
+		.
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
@@ -161,13 +184,10 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.3.0
-CONTROLLER_TOOLS_VERSION ?= v0.17.3
-ENVTEST_VERSION ?= release-0.17
-GOLANGCI_LINT_VERSION ?= v1.54.2
-KB_TOOLS_ARCHIVE_NAME :=kubebuilder-tools-$(ENVTEST_K8S_VERSION)-$(GOHOSTOS)-$(GOHOSTARCH).tar.gz
-KB_TOOLS_ARCHIVE_PATH := /tmp/$(KB_TOOLS_ARCHIVE_NAME)
-export KUBEBUILDER_ASSETS ?=/tmp/kubebuilder/bin
+KUSTOMIZE_VERSION ?= v5.8.1
+CONTROLLER_TOOLS_VERSION ?= v0.20.0
+ENVTEST_VERSION ?= release-0.23
+GOLANGCI_LINT_VERSION ?= v2.9.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -187,19 +207,12 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
-
-# download the kubebuilder-tools to get kube-apiserver binaries from it
-.PHONY: ensure-kubebuilder-tools
-ensure-kubebuilder-tools:
-ifeq "" "$(wildcard $(KUBEBUILDER_ASSETS))"
-	$(info Downloading kube-apiserver into '$(KUBEBUILDER_ASSETS)')
-	mkdir -p '$(KUBEBUILDER_ASSETS)'
-	curl -s -f -L https://storage.googleapis.com/kubebuilder-tools/$(KB_TOOLS_ARCHIVE_NAME) -o '$(KB_TOOLS_ARCHIVE_PATH)'
-	tar -C '$(KUBEBUILDER_ASSETS)' --strip-components=2 -zvxf '$(KB_TOOLS_ARCHIVE_PATH)'
-else
-	$(info Using existing kube-apiserver from "$(KUBEBUILDER_ASSETS)")
-endif
+	@[ -f $(GOLANGCI_LINT) ] || { \
+	set -e; \
+	echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)" ;\
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCALBIN) $(GOLANGCI_LINT_VERSION) ;\
+	mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT) ;\
+	}
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)

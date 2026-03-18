@@ -63,10 +63,15 @@ func New(providers []Provider) *CredentialsProvider {
 	}
 }
 
-// SetupProviderFileFlag defines the -clusterprofile-provider-file command-line flag and returns a pointer
-// to the string that will hold the path. flag.Parse() must still be called manually by the caller
+// SetupProviderFileFlag defines the -clusterprofile-provider-file command-line flag
+// and returns a pointer to the string that will hold the path.
+// flag.Parse() must still be called manually by the caller
 func SetupProviderFileFlag() *string {
-	return flag.String("clusterprofile-provider-file", "clusterprofile-provider-file.json", "Path to the JSON configuration file")
+	return flag.String(
+		"clusterprofile-provider-file",
+		"clusterprofile-provider-file.json",
+		"Path to the JSON configuration file",
+	)
 }
 
 func NewFromFile(path string) (*CredentialsProvider, error) {
@@ -79,7 +84,7 @@ func NewFromFile(path string) (*CredentialsProvider, error) {
 	// 2. Create a new Providers instance and unmarshal the data into it
 	var providers CredentialsProvider
 	if err := json.Unmarshal(data, &providers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal credential proviers: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal credential providers: %w", err)
 	}
 
 	// 3. Return the populated credentials
@@ -159,13 +164,18 @@ func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(providerName stri
 
 // getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
 // that matches one of the supported provider types in the CredentialsProvider
-func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(cluster *v1alpha1.ClusterProfile) *v1alpha1.AccessProvider {
+func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(
+	cluster *v1alpha1.ClusterProfile,
+) *v1alpha1.AccessProvider {
 	accessProviderTypes := map[string]*v1alpha1.AccessProvider{}
 
 	// to keep backward compatibility, we first check the CredentialProviders field
 	for _, accessProvider := range cluster.Status.CredentialProviders {
 		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()
-		klog.Warningf("ClusterProfile %q uses deprecated field CredentialProviders %q; please migrate to AccessProviders", cluster.Name, accessProvider.Name)
+		klog.Warningf(
+			"ClusterProfile %q uses deprecated field CredentialProviders %q; please migrate to AccessProviders",
+			cluster.Name, accessProvider.Name,
+		)
 	}
 
 	for _, accessProvider := range cluster.Status.AccessProviders {

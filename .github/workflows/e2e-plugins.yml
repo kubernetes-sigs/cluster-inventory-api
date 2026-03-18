@@ -1,0 +1,66 @@
+name: E2E - Plugins
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-plugins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-plugins:
+    name: Run controller example (plugin ${{ matrix.plugin_name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - plugin_name: secretreader
+            provider_name: secretreader
+            setup_script: ./examples/controller-example/plugins/secretreader/setup-kind-demo.sh
+          - plugin_name: kubeconfig-secretreader
+            provider_name: kubeconfig-secretreader
+            setup_script: ./examples/controller-example/plugins/kubeconfig-secretreader/setup-kind-demo.sh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup kind
+        uses: helm/kind-action@v1.13.0
+        with:
+          install_only: true
+          version: v0.31.0
+
+      - name: Tool versions
+        run: |
+          kind version
+          kubectl version --client=true
+          go version
+          jq --version
+
+      - name: Create hub/spoke kind clusters + bootstrap resources
+        run: |
+          bash ${{ matrix.setup_script }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run controller example in-cluster (image volume plugin)
+        run: |
+          hack/e2e-controller-incluster.sh ${{ matrix.plugin_name }} ${{ matrix.provider_name }}
+
+      - name: Cleanup kind clusters
+        if: always()
+        run: |
+          bash ./examples/controller-example/down.sh

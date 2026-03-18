@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sclient "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ciaclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
@@ -33,19 +34,23 @@ func main() {
 		log.Fatalf("Got error reading credentials providers: %v", err)
 	}
 
-	// Build hub client and get ClusterProfile
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
-	hubClientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-	hubConfig, err := hubClientConfig.ClientConfig()
+	// Build hub client and get ClusterProfile (in-cluster first, then kubeconfig)
+	hubConfig, err := rest.InClusterConfig()
 	if err != nil {
-		log.Fatalf("failed to load default kubeconfig for hub: %v", err)
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		configOverrides := &clientcmd.ConfigOverrides{}
+		hubClientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+		hubConfig, err = hubClientConfig.ClientConfig()
+		if err != nil {
+			log.Fatalf("failed to load hub config (in-cluster and kubeconfig): %v", err)
+		}
 	}
 	cic, err := ciaclient.NewForConfig(hubConfig)
 	if err != nil {
 		log.Fatalf("failed to construct cluster-inventory client: %v", err)
 	}
-	cp, err := cic.ApisV1alpha1().ClusterProfiles(*namespace).Get(context.Background(), *clusterProfileName, metav1.GetOptions{})
+	cp, err := cic.ApisV1alpha1().ClusterProfiles(*namespace).Get(
+		context.Background(), *clusterProfileName, metav1.GetOptions{})
 	if err != nil {
 		log.Fatalf("failed to get ClusterProfile %s/%s: %v", *namespace, *clusterProfileName, err)
 	}
