@@ -17,10 +17,12 @@ import (
 )
 
 const (
-	// client.authentication.k8s.io/exec is a reserved extension key defined by the Kubernetes
-	// client authentication API (SIG Auth), not by the ClusterProfile API.
-	// Reference:
-	// https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/#client-authentication-k8s-io-v1beta1-Cluster
+	// client.authentication.k8s.io/exec is a reserved extension key defined
+	// by the Kubernetes client authentication API (SIG Auth), not by the
+	// ClusterProfile API.
+	// Reference: https://kubernetes.io/docs/reference/config-api/
+	//   client-authentication.v1beta1/
+	//   #client-authentication-k8s-io-v1beta1-Cluster
 	clusterExecExtensionKey = "client.authentication.k8s.io/exec"
 
 	// additionalCLIArgsExtensionKey and additionalEnvVarsExtensionKey are
@@ -100,20 +102,33 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	}
 
 	// 2. Get Exec Config
-	execConfig, profileSourcedCLIArgsPolicy, profileSourcedEnvVarsPolicy := cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
+	execConfig, cliArgsPolicy, envVarsPolicy :=
+		cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
 	if execConfig == nil {
-		return nil, fmt.Errorf("no exec credentials found for provider %q", clusterAccessor.Name)
+		return nil, fmt.Errorf(
+			"no exec credentials found for provider %q",
+			clusterAccessor.Name,
+		)
 	}
 
-	// 3. Add additional CLI arguments and environment variables from cluster extensions if allowed.
+	// 3. Add additional CLI arguments and environment variables
+	// from cluster extensions if allowed.
 	for idx := range clusterAccessor.Cluster.Extensions {
 		ext := &clusterAccessor.Cluster.Extensions[idx]
 
 		switch ext.Name {
 		case additionalCLIArgsExtensionKey:
-			processClusterProfileSourcedCLIArgData(execConfig, ext.Extension.Raw, profileSourcedCLIArgsPolicy)
+			if err := processClusterProfileSourcedCLIArgData(
+				execConfig, ext.Extension.Raw, cliArgsPolicy,
+			); err != nil {
+				return nil, err
+			}
 		case additionalEnvVarsExtensionKey:
-			processClusterProfileSourcedEnvVarData(execConfig, ext.Extension.Raw, profileSourcedEnvVarsPolicy)
+			if err := processClusterProfileSourcedEnvVarData(
+				execConfig, ext.Extension.Raw, envVarsPolicy,
+			); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -153,7 +168,9 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	return config, nil
 }
 
-func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(providerName string) (*clientcmdapi.ExecConfig, ProfileSourcedCLIArgsPolicy, ProfileSourcedEnvVarsPolicy) {
+func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(
+	providerName string,
+) (*clientcmdapi.ExecConfig, ProfileSourcedCLIArgsPolicy, ProfileSourcedEnvVarsPolicy) {
 	for _, provider := range cp.Providers {
 		if provider.Name == providerName {
 			return provider.ExecConfig, provider.ProfileSourcedCLIArgsPolicy, provider.ProfileSourcedEnvVarsPolicy
@@ -191,7 +208,11 @@ func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(
 	return nil
 }
 
-func processClusterProfileSourcedCLIArgData(execConfig *clientcmdapi.ExecConfig, data []byte, policy ProfileSourcedCLIArgsPolicy) error {
+func processClusterProfileSourcedCLIArgData(
+	execConfig *clientcmdapi.ExecConfig,
+	data []byte,
+	policy ProfileSourcedCLIArgsPolicy,
+) error {
 	switch policy {
 	case "", ProfileSourcedCLIArgsPolicyIgnore:
 		// No action is needed.
@@ -209,7 +230,11 @@ func processClusterProfileSourcedCLIArgData(execConfig *clientcmdapi.ExecConfig,
 	}
 }
 
-func processClusterProfileSourcedEnvVarData(execConfig *clientcmdapi.ExecConfig, data []byte, policy ProfileSourcedEnvVarsPolicy) error {
+func processClusterProfileSourcedEnvVarData(
+	execConfig *clientcmdapi.ExecConfig,
+	data []byte,
+	policy ProfileSourcedEnvVarsPolicy,
+) error {
 	var envVars map[string]string
 
 	switch policy {

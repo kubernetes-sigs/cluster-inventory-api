@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 )
 
+const providerLocalEnvVarDefault = "None"
+
 func TestCredentials(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t, "Credentials Package Suite")
@@ -191,43 +193,80 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 	ginkgo.Describe("getExecConfigFromConfig", func() {
 		ginkgo.It("should return the correct ExecConfig for existing provider", func() {
-			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-1")
+			execConfig, cliArgsPolicy, envVarsPolicy :=
+				credentialsProvider.getExecConfigAndFlagsFromConfig(
+					"test-provider-1",
+				)
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
-			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-1"))
-			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg1", "arg2"}))
-			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.HaveLen(0))
-			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.HaveLen(0))
+			gomega.Expect(execConfig.Command).To(
+				gomega.Equal("test-command-1"),
+			)
+			gomega.Expect(execConfig.Args).To(
+				gomega.Equal([]string{"arg1", "arg2"}),
+			)
+			gomega.Expect(cliArgsPolicy).To(gomega.HaveLen(0))
+			gomega.Expect(envVarsPolicy).To(gomega.HaveLen(0))
 		})
 
 		ginkgo.It("should return the correct ExecConfig for another existing provider", func() {
-			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("test-provider-2")
+			execConfig, cliArgsPolicy, envVarsPolicy :=
+				credentialsProvider.getExecConfigAndFlagsFromConfig(
+					"test-provider-2",
+				)
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
-			gomega.Expect(execConfig.Command).To(gomega.Equal("test-command-2"))
-			gomega.Expect(execConfig.Args).To(gomega.Equal([]string{"arg3"}))
-			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(ProfileSourcedCLIArgsPolicyAppend))
-			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(ProfileSourcedEnvVarsPolicyReplace))
+			gomega.Expect(execConfig.Command).To(
+				gomega.Equal("test-command-2"),
+			)
+			gomega.Expect(execConfig.Args).To(
+				gomega.Equal([]string{"arg3"}),
+			)
+			gomega.Expect(cliArgsPolicy).To(
+				gomega.Equal(ProfileSourcedCLIArgsPolicyAppend),
+			)
+			gomega.Expect(envVarsPolicy).To(
+				gomega.Equal(ProfileSourcedEnvVarsPolicyReplace),
+			)
 		})
 
 		ginkgo.It("should return nil for non-existing provider", func() {
-			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("non-existent-provider")
+			execConfig, cliArgsPolicy, envVarsPolicy :=
+				credentialsProvider.getExecConfigAndFlagsFromConfig(
+					"non-existent-provider",
+				)
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore))
-			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore))
+			gomega.Expect(cliArgsPolicy).To(
+				gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore),
+			)
+			gomega.Expect(envVarsPolicy).To(
+				gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore),
+			)
 		})
 
 		ginkgo.It("should return nil for empty provider name", func() {
-			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := credentialsProvider.getExecConfigAndFlagsFromConfig("")
+			execConfig, cliArgsPolicy, envVarsPolicy :=
+				credentialsProvider.getExecConfigAndFlagsFromConfig("")
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore))
-			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore))
+			gomega.Expect(cliArgsPolicy).To(
+				gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore),
+			)
+			gomega.Expect(envVarsPolicy).To(
+				gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore),
+			)
 		})
 
 		ginkgo.It("should handle CredentialsProvider with no providers", func() {
 			emptyCP := New([]Provider{})
-			execConfig, allowProfileSourcedCLIArgs, allowProfileSourcedEnvVars := emptyCP.getExecConfigAndFlagsFromConfig("any-provider")
+			execConfig, cliArgsPolicy, envVarsPolicy :=
+				emptyCP.getExecConfigAndFlagsFromConfig(
+					"any-provider",
+				)
 			gomega.Expect(execConfig).To(gomega.BeNil())
-			gomega.Expect(allowProfileSourcedCLIArgs).To(gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore))
-			gomega.Expect(allowProfileSourcedEnvVars).To(gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore))
+			gomega.Expect(cliArgsPolicy).To(
+				gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore),
+			)
+			gomega.Expect(envVarsPolicy).To(
+				gomega.Equal(ProfileSourcedEnvVarsPolicyIgnore),
+			)
 		})
 	})
 
@@ -428,7 +467,10 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(config.ExecProvider.Env).To(gomega.Equal(wantEnvVars))
 		})
 
-		ginkgo.It("should build config successfully (with additional CLI args (append) and additional env vars (replace))", func() {
+		buildConfigWithEnvVarPolicyTest := func(
+			envVarsPolicy ProfileSourcedEnvVarsPolicy,
+			expectedEnvVarVal1 string,
+		) {
 			cred := clientauthenticationv1.ExecCredential{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "client.authentication.k8s.io/v1",
@@ -444,7 +486,6 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			err = os.WriteFile(testFile, jsonData, 0644)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			providerLocalEnvVarVal := "None"
 			execCP := New([]Provider{
 				{
 					Name: "test-provider-1",
@@ -455,96 +496,63 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 						Env: []clientcmdapi.ExecEnvVar{
 							{
 								Name:  additionalEnvVarName1,
-								Value: providerLocalEnvVarVal,
+								Value: providerLocalEnvVarDefault,
 							},
 						},
 					},
 					ProfileSourcedCLIArgsPolicy: ProfileSourcedCLIArgsPolicyAppend,
-					ProfileSourcedEnvVarsPolicy: ProfileSourcedEnvVarsPolicyReplace,
+					ProfileSourcedEnvVarsPolicy: envVarsPolicy,
 				},
 			})
 
 			config, err := execCP.BuildConfigFromCP(clusterProfile)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(config).NotTo(gomega.BeNil())
-			gomega.Expect(config.Host).To(gomega.Equal("https://test-server.com"))
-			gomega.Expect(config.TLSClientConfig.CAData).To(gomega.Equal([]byte("test-ca-data")))
-			gomega.Expect(config.ExecProvider.Command).To(gomega.Equal("cat"))
-			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal([]string{
-				testFile,
-				"--audience", "audience",
-			}))
-			gomega.Expect(len(config.ExecProvider.Env)).To(gomega.Equal(2))
-			gomega.Expect(config.ExecProvider.Env).To(gomega.ContainElements(
-				clientcmdapi.ExecEnvVar{
-					Name:  additionalEnvVarName1,
-					Value: additionalEnvVarVal1,
-				},
-				clientcmdapi.ExecEnvVar{
-					Name:  additionalEnvVarName2,
-					Value: additionalEnvVarVal2,
-				},
+			gomega.Expect(config.Host).To(gomega.Equal(
+				"https://test-server.com",
 			))
-		})
-
-		ginkgo.It("should build config successfully (with additional CLI args (append) and additional env vars (appendIfNotExists))", func() {
-			cred := clientauthenticationv1.ExecCredential{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "client.authentication.k8s.io/v1",
-					Kind:       "ExecCredential",
-				},
-				Status: &clientauthenticationv1.ExecCredentialStatus{
-					Token: "test-token",
-				},
-			}
-			jsonData, err := json.Marshal(cred)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			testFile := filepath.Join(tempDir, "test-config.json")
-			err = os.WriteFile(testFile, jsonData, 0644)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			providerLocalEnvVarVal := "None"
-			execCP := New([]Provider{
-				{
-					Name: "test-provider-1",
-					ExecConfig: &clientcmdapi.ExecConfig{
-						APIVersion: "client.authentication.k8s.io/v1",
-						Command:    "cat",
-						Args:       []string{testFile},
-						Env: []clientcmdapi.ExecEnvVar{
-							{
-								Name:  additionalEnvVarName1,
-								Value: providerLocalEnvVarVal,
-							},
-						},
+			gomega.Expect(config.TLSClientConfig.CAData).To(
+				gomega.Equal([]byte("test-ca-data")),
+			)
+			gomega.Expect(config.ExecProvider.Command).To(
+				gomega.Equal("cat"),
+			)
+			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal(
+				[]string{testFile, "--audience", "audience"},
+			))
+			gomega.Expect(config.ExecProvider.Env).To(
+				gomega.HaveLen(2),
+			)
+			gomega.Expect(config.ExecProvider.Env).To(
+				gomega.ContainElements(
+					clientcmdapi.ExecEnvVar{
+						Name:  additionalEnvVarName1,
+						Value: expectedEnvVarVal1,
 					},
-					ProfileSourcedCLIArgsPolicy: ProfileSourcedCLIArgsPolicyAppend,
-					ProfileSourcedEnvVarsPolicy: ProfileSourcedEnvVarsPolicyReplace,
-				},
+					clientcmdapi.ExecEnvVar{
+						Name:  additionalEnvVarName2,
+						Value: additionalEnvVarVal2,
+					},
+				))
+		}
+
+		ginkgo.It("should build config with additional "+
+			"CLI args (append) and env vars (replace)",
+			func() {
+				buildConfigWithEnvVarPolicyTest(
+					ProfileSourcedEnvVarsPolicyReplace,
+					additionalEnvVarVal1,
+				)
 			})
 
-			config, err := execCP.BuildConfigFromCP(clusterProfile)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(config).NotTo(gomega.BeNil())
-			gomega.Expect(config.Host).To(gomega.Equal("https://test-server.com"))
-			gomega.Expect(config.TLSClientConfig.CAData).To(gomega.Equal([]byte("test-ca-data")))
-			gomega.Expect(config.ExecProvider.Command).To(gomega.Equal("cat"))
-			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal([]string{
-				testFile,
-				"--audience", "audience",
-			}))
-			gomega.Expect(len(config.ExecProvider.Env)).To(gomega.Equal(2))
-			gomega.Expect(config.ExecProvider.Env).To(gomega.ContainElements(
-				clientcmdapi.ExecEnvVar{
-					Name:  additionalEnvVarName1,
-					Value: additionalEnvVarVal1,
-				},
-				clientcmdapi.ExecEnvVar{
-					Name:  additionalEnvVarName2,
-					Value: additionalEnvVarVal2,
-				},
-			))
-		})
+		ginkgo.It("should build config with additional "+
+			"CLI args (append) and env vars (appendIfNotExists)",
+			func() {
+				buildConfigWithEnvVarPolicyTest(
+					ProfileSourcedEnvVarsPolicyAppendIfNotExists,
+					providerLocalEnvVarDefault,
+				)
+			})
 
 		ginkgo.It("should build config successfully (ignore additional CLI args and additional env vars)", func() {
 			cred := clientauthenticationv1.ExecCredential{
@@ -562,7 +570,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			err = os.WriteFile(testFile, jsonData, 0644)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			providerLocalEnvVarVal := "None"
+			providerLocalEnvVarVal := providerLocalEnvVarDefault
 			execCP := New([]Provider{
 				{
 					Name: "test-provider-1",
@@ -585,17 +593,26 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			config, err := execCP.BuildConfigFromCP(clusterProfile)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(config).NotTo(gomega.BeNil())
-			gomega.Expect(config.Host).To(gomega.Equal("https://test-server.com"))
-			gomega.Expect(config.TLSClientConfig.CAData).To(gomega.Equal([]byte("test-ca-data")))
-			gomega.Expect(config.ExecProvider.Command).To(gomega.Equal("cat"))
-			gomega.Expect(config.ExecProvider.Args).To(gomega.Equal([]string{testFile}))
-			gomega.Expect(len(config.ExecProvider.Env)).To(gomega.Equal(1))
-			gomega.Expect(config.ExecProvider.Env).To(gomega.ContainElements(
-				clientcmdapi.ExecEnvVar{
-					Name:  additionalEnvVarName1,
-					Value: providerLocalEnvVarVal,
-				},
+			gomega.Expect(config.Host).To(gomega.Equal(
+				"https://test-server.com",
 			))
+			gomega.Expect(config.TLSClientConfig.CAData).To(
+				gomega.Equal([]byte("test-ca-data")),
+			)
+			gomega.Expect(config.ExecProvider.Command).To(
+				gomega.Equal("cat"),
+			)
+			gomega.Expect(config.ExecProvider.Args).To(
+				gomega.Equal([]string{testFile}),
+			)
+			gomega.Expect(config.ExecProvider.Env).To(gomega.HaveLen(1))
+			gomega.Expect(config.ExecProvider.Env).To(
+				gomega.ContainElements(
+					clientcmdapi.ExecEnvVar{
+						Name:  additionalEnvVarName1,
+						Value: providerLocalEnvVarVal,
+					},
+				))
 		})
 	})
 })
