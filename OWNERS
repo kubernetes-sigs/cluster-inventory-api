@@ -16,3 +16,6 @@ reviewers:
   - qiujian16
   - skitt
   - kahirokunn
+
+labels:
+  - sig/multicluster
