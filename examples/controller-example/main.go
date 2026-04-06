@@ -13,13 +13,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ciaclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
 	// Flags
-	accessProviders := credentials.SetupProviderFileFlag()
+	providerFile := access.SetupProviderFileFlag()
 	namespace := flag.String("namespace", "default", "Namespace of the ClusterProfile on the hub cluster")
 	clusterProfileName := flag.String("clusterprofile", "", "Name of the ClusterProfile to target (required)")
 	flag.Parse()
@@ -29,9 +29,9 @@ func main() {
 	}
 
 	// Load providers file
-	cpCreds, err := credentials.NewFromFile(*accessProviders)
+	accessCfg, err := access.NewFromFile(*providerFile)
 	if err != nil {
-		log.Fatalf("Got error reading credentials providers: %v", err)
+		log.Fatalf("Got error reading access providers: %v", err)
 	}
 
 	// Build hub client and get ClusterProfile (in-cluster first, then kubeconfig)
@@ -55,8 +55,8 @@ func main() {
 		log.Fatalf("failed to get ClusterProfile %s/%s: %v", *namespace, *clusterProfileName, err)
 	}
 
-	// Build rest.Config for the spoke cluster using the credential provider
-	spokeConfig, err := cpCreds.BuildConfigFromCP(cp)
+	// Build rest.Config for the spoke cluster using the access config
+	spokeConfig, err := accessCfg.BuildConfigFromCP(cp)
 	if err != nil {
 		log.Fatalf("Got error generating spoke rest.Config: %v", err)
 	}

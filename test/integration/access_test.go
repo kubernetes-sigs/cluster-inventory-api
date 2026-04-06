@@ -16,11 +16,11 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	"sigs.k8s.io/yaml"
 )
 
-var _ = ginkgo.Describe("Credentials test", func() {
+var _ = ginkgo.Describe("Access config test", func() {
 	var clusterName string
 	var clusterManagerName string
 	var tempDir string
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Credentials test", func() {
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 
-		tempDir, err = os.MkdirTemp("", "integration-credentials-test")
+		tempDir, err = os.MkdirTemp("", "integration-access-test")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Credentials test", func() {
 		}
 	})
 
-	ginkgo.It("Should get credntial by cluster profile", func() {
+	ginkgo.It("Should get access config by cluster profile", func() {
 		cp, err := clusterProfileClient.ApisV1alpha1().ClusterProfiles(testNamespace).Get(
 			context.TODO(), clusterName, metav1.GetOptions{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
@@ -105,8 +105,8 @@ var _ = ginkgo.Describe("Credentials test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Create provider configuration file
-		credProviderConfig := credentials.CredentialsProvider{
-			Providers: []credentials.Provider{
+		providerConfig := access.Config{
+			Providers: []access.Provider{
 				{
 					Name: "provider1",
 					ExecConfig: &clientcmdapi.ExecConfig{
@@ -119,17 +119,17 @@ var _ = ginkgo.Describe("Credentials test", func() {
 			},
 		}
 
-		credProviderData, err := json.Marshal(credProviderConfig)
+		providerData, err := json.Marshal(providerConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		configFile := filepath.Join(tempDir, "test-config.json")
-		err = os.WriteFile(configFile, credProviderData, 0644)
+		err = os.WriteFile(configFile, providerData, 0644)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		credentialConfig, err := credentials.NewFromFile(configFile)
+		accessCfg, err := access.NewFromFile(configFile)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		config, err := credentialConfig.BuildConfigFromCP(cp)
+		config, err := accessCfg.BuildConfigFromCP(cp)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(config).NotTo(gomega.BeNil())
 

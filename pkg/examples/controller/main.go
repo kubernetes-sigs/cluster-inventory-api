@@ -6,16 +6,16 @@ import (
 
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 )
 
 func main() {
-	credentialsProviders := credentials.SetupProviderFileFlag()
+	providerFile := access.SetupProviderFileFlag()
 	flag.Parse()
 
-	cpCreds, err := credentials.NewFromFile(*credentialsProviders)
+	accessCfg, err := access.NewFromFile(*providerFile)
 	if err != nil {
-		log.Fatalf("Got error reading credentials providers: %v", err)
+		log.Fatalf("Got error reading access providers: %v", err)
 	}
 
 	// normally we would get this clusterprofile from the local cluster (maybe a watch?)
@@ -36,10 +36,10 @@ func main() {
 		},
 	}
 
-	restConfigForMyCluster, err := cpCreds.BuildConfigFromCP(&exampleClusterProfile)
+	restConfigForMyCluster, err := accessCfg.BuildConfigFromCP(&exampleClusterProfile)
 	if err != nil {
 		log.Fatalf("Got error generating restConfig: %v", err)
 	}
-	log.Printf("Got credentials: %v", restConfigForMyCluster)
+	log.Printf("Got rest.Config: %v", restConfigForMyCluster)
 	// I can then use this rest.Config to build a k8s client.
 }

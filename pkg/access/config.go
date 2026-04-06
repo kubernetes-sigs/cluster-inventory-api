@@ -1,4 +1,4 @@
-package credentials
+package access
 
 import (
 	"encoding/json"
@@ -55,12 +55,12 @@ type Provider struct {
 	ProfileSourcedEnvVarsPolicy ProfileSourcedEnvVarsPolicy `json:"profileSourcedEnvVarsPolicy,omitempty"`
 }
 
-type CredentialsProvider struct {
+type Config struct {
 	Providers []Provider `json:"providers"`
 }
 
-func New(providers []Provider) *CredentialsProvider {
-	return &CredentialsProvider{
+func New(providers []Provider) *Config {
+	return &Config{
 		Providers: providers,
 	}
 }
@@ -76,37 +76,37 @@ func SetupProviderFileFlag() *string {
 	)
 }
 
-func NewFromFile(path string) (*CredentialsProvider, error) {
+func NewFromFile(path string) (*Config, error) {
 	// 1. Read the file's content
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read credentials file: %w", err)
+		return nil, fmt.Errorf("failed to read access config file: %w", err)
 	}
 
 	// 2. Create a new Providers instance and unmarshal the data into it
-	var providers CredentialsProvider
+	var providers Config
 	if err := json.Unmarshal(data, &providers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal credential providers: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal access providers: %w", err)
 	}
 
-	// 3. Return the populated credentials
+	// 3. Return the populated access config
 	return &providers, nil
 }
 
 // BuildConfigFromCP builds a rest.Config from the given ClusterProfile
-func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
+func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
 	// 1. obtain the correct clusterAccessor from the CP
-	clusterAccessor := cp.getClusterAccessorFromClusterProfile(clusterprofile)
+	clusterAccessor := c.getClusterAccessorFromClusterProfile(clusterprofile)
 	if clusterAccessor == nil {
 		return nil, fmt.Errorf("no matching cluster accessor found for cluster profile %q", clusterprofile.Name)
 	}
 
 	// 2. Get Exec Config
 	execConfig, cliArgsPolicy, envVarsPolicy :=
-		cp.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
+		c.getExecConfigAndFlagsFromConfig(clusterAccessor.Name)
 	if execConfig == nil {
 		return nil, fmt.Errorf(
-			"no exec credentials found for provider %q",
+			"no exec config found for provider %q",
 			clusterAccessor.Name,
 		)
 	}
@@ -132,7 +132,7 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 		}
 	}
 
-	// 3. build resulting rest.Config
+	// 4. build resulting rest.Config
 	config := &rest.Config{
 		Host: clusterAccessor.Cluster.Server,
 		TLSClientConfig: rest.TLSClientConfig{
@@ -168,10 +168,10 @@ func (cp *CredentialsProvider) BuildConfigFromCP(clusterprofile *v1alpha1.Cluste
 	return config, nil
 }
 
-func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(
+func (c *Config) getExecConfigAndFlagsFromConfig(
 	providerName string,
 ) (*clientcmdapi.ExecConfig, ProfileSourcedCLIArgsPolicy, ProfileSourcedEnvVarsPolicy) {
-	for _, provider := range cp.Providers {
+	for _, provider := range c.Providers {
 		if provider.Name == providerName {
 			return provider.ExecConfig, provider.ProfileSourcedCLIArgsPolicy, provider.ProfileSourcedEnvVarsPolicy
 		}
@@ -180,8 +180,8 @@ func (cp *CredentialsProvider) getExecConfigAndFlagsFromConfig(
 }
 
 // getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
-// that matches one of the supported provider types in the CredentialsProvider
-func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(
+// that matches one of the supported provider types in the Config
+func (c *Config) getClusterAccessorFromClusterProfile(
 	cluster *v1alpha1.ClusterProfile,
 ) *v1alpha1.AccessProvider {
 	accessProviderTypes := map[string]*v1alpha1.AccessProvider{}
@@ -199,8 +199,8 @@ func (cp *CredentialsProvider) getClusterAccessorFromClusterProfile(
 		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()
 	}
 
-	// we return the first access provider that the CredentialsProvider supports.
-	for _, providerType := range cp.Providers {
+	// we return the first access provider that the Config supports.
+	for _, providerType := range c.Providers {
 		if accessor, found := accessProviderTypes[providerType.Name]; found {
 			return accessor
 		}
