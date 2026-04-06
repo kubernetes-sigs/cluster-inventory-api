@@ -1,3 +1,31 @@
+// Package access provides configuration for building Kubernetes REST configs
+// from ClusterProfile resources.
+//
+// This package is used by controllers that need to connect to "spoke" clusters
+// registered in a cluster inventory. It reads a provider configuration file
+// (typically passed via the --clusterprofile-provider-file flag), matches
+// providers against the AccessProviders listed in a ClusterProfile's status,
+// and produces a [rest.Config] ready for use with client-go.
+//
+// Note: This package is unrelated to Kubernetes RBAC or access control.
+// It manages cluster access configuration via exec-based authentication plugins.
+//
+// Basic usage:
+//
+//	// Load provider configuration from a JSON file
+//	cfg, err := access.NewFromFile("clusterprofile-provider-file.json")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Build a rest.Config for a specific ClusterProfile
+//	restConfig, err := cfg.BuildConfigFromCP(clusterProfile)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Use restConfig with client-go
+//	client, err := kubernetes.NewForConfig(restConfig)
 package access
 
 import (
