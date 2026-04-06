@@ -10,7 +10,7 @@ import (
 	clientcmdapiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
-	"sigs.k8s.io/cluster-inventory-api/pkg/credentials"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 )
 
 // The example below showcases how to use Azure's kubelogin exec plugin to sign into an
@@ -21,7 +21,7 @@ import (
 // and/or environment variables to the exec plugin via the ClusterProfile API using the
 // reserved extensions, as defined in KEP 5339.
 func main() {
-	providers := []credentials.Provider{
+	providers := []access.Provider{
 		{
 			Name: "aks-workload-identity",
 			ExecConfig: &clientcmdapi.ExecConfig{
@@ -42,11 +42,11 @@ func main() {
 				ProvideClusterInfo: false,
 				InteractiveMode:    clientcmdapi.NeverExecInteractiveMode,
 			},
-			ProfileSourcedCLIArgsPolicy: credentials.ProfileSourcedCLIArgsPolicyAppend,
-			ProfileSourcedEnvVarsPolicy: credentials.ProfileSourcedEnvVarsPolicyReplace,
+			ProfileSourcedCLIArgsPolicy: access.ProfileSourcedCLIArgsPolicyAppend,
+			ProfileSourcedEnvVarsPolicy: access.ProfileSourcedEnvVarsPolicyReplace,
 		},
 	}
-	cps := credentials.New(providers)
+	accessCfg := access.New(providers)
 
 	// The additional arguments are cluster-specific information.
 	additionalArgs := []string{
@@ -110,7 +110,7 @@ func main() {
 		},
 	}
 
-	restConfig, err := cps.BuildConfigFromCP(profile)
+	restConfig, err := accessCfg.BuildConfigFromCP(profile)
 	if err != nil {
 		log.Fatalf("Failed to prepare REST config: %v", err)
 	}

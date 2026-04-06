@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package access
 
 import (
 	"encoding/json"
@@ -36,21 +36,21 @@ import (
 
 const providerLocalEnvVarDefault = "None"
 
-func TestCredentials(t *testing.T) {
+func TestAccess(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Credentials Package Suite")
+	ginkgo.RunSpecs(t, "Access Package Suite")
 }
 
-var _ = ginkgo.Describe("CredentialsProvider", func() {
+var _ = ginkgo.Describe("Config", func() {
 	var (
-		tempDir             string
-		testProviders       []Provider
-		credentialsProvider *CredentialsProvider
+		tempDir       string
+		testProviders []Provider
+		cfg           *Config
 	)
 
 	ginkgo.BeforeEach(func() {
 		var err error
-		tempDir, err = os.MkdirTemp("", "credentials-test")
+		tempDir, err = os.MkdirTemp("", "access-test")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		testProviders = []Provider{
@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 				ProfileSourcedEnvVarsPolicy: ProfileSourcedEnvVarsPolicyReplace,
 			},
 		}
-		credentialsProvider = New(testProviders)
+		cfg = New(testProviders)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 	})
 
 	ginkgo.Describe("New", func() {
-		ginkgo.It("should create a new CredentialsProvider with provided providers", func() {
+		ginkgo.It("should create a new Config with provided providers", func() {
 			providers := []Provider{
 				{Name: "provider1", ExecConfig: &clientcmdapi.ExecConfig{Command: "cmd1"}},
 				{Name: "provider2", ExecConfig: &clientcmdapi.ExecConfig{Command: "cmd2"}},
@@ -96,13 +96,13 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(cp.Providers[1].Name).To(gomega.Equal("provider2"))
 		})
 
-		ginkgo.It("should create a CredentialsProvider with empty providers", func() {
+		ginkgo.It("should create a Config with empty providers", func() {
 			cp := New([]Provider{})
 			gomega.Expect(cp).NotTo(gomega.BeNil())
 			gomega.Expect(cp.Providers).To(gomega.HaveLen(0))
 		})
 
-		ginkgo.It("should create a CredentialsProvider with nil providers", func() {
+		ginkgo.It("should create a Config with nil providers", func() {
 			cp := New(nil)
 			gomega.Expect(cp).NotTo(gomega.BeNil())
 			gomega.Expect(cp.Providers).To(gomega.BeNil())
@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 	ginkgo.Describe("NewFromFile", func() {
 		ginkgo.It("should successfully read and unmarshal a valid JSON file", func() {
 			// Create a test JSON file
-			testData := CredentialsProvider{
+			testData := Config{
 				Providers: []Provider{
 					{
 						Name: "gkeFleet",
@@ -165,7 +165,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			cp, err := NewFromFile(nonExistentFile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(cp).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to read credentials file"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to read access config file"))
 		})
 
 		ginkgo.It("should return an error when file contains invalid JSON", func() {
@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			cp, err := NewFromFile(invalidJSONFile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(cp).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal credential providers"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("failed to unmarshal access providers"))
 		})
 
 		ginkgo.It("should handle empty JSON file", func() {
@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 	ginkgo.Describe("getExecConfigFromConfig", func() {
 		ginkgo.It("should return the correct ExecConfig for existing provider", func() {
 			execConfig, cliArgsPolicy, envVarsPolicy :=
-				credentialsProvider.getExecConfigAndFlagsFromConfig(
+				cfg.getExecConfigAndFlagsFromConfig(
 					"test-provider-1",
 				)
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 		ginkgo.It("should return the correct ExecConfig for another existing provider", func() {
 			execConfig, cliArgsPolicy, envVarsPolicy :=
-				credentialsProvider.getExecConfigAndFlagsFromConfig(
+				cfg.getExecConfigAndFlagsFromConfig(
 					"test-provider-2",
 				)
 			gomega.Expect(execConfig).NotTo(gomega.BeNil())
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 		ginkgo.It("should return nil for non-existing provider", func() {
 			execConfig, cliArgsPolicy, envVarsPolicy :=
-				credentialsProvider.getExecConfigAndFlagsFromConfig(
+				cfg.getExecConfigAndFlagsFromConfig(
 					"non-existent-provider",
 				)
 			gomega.Expect(execConfig).To(gomega.BeNil())
@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 
 		ginkgo.It("should return nil for empty provider name", func() {
 			execConfig, cliArgsPolicy, envVarsPolicy :=
-				credentialsProvider.getExecConfigAndFlagsFromConfig("")
+				cfg.getExecConfigAndFlagsFromConfig("")
 			gomega.Expect(execConfig).To(gomega.BeNil())
 			gomega.Expect(cliArgsPolicy).To(
 				gomega.Equal(ProfileSourcedCLIArgsPolicyIgnore),
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			)
 		})
 
-		ginkgo.It("should handle CredentialsProvider with no providers", func() {
+		ginkgo.It("should handle Config with no providers", func() {
 			emptyCP := New([]Provider{})
 			execConfig, cliArgsPolicy, envVarsPolicy :=
 				emptyCP.getExecConfigAndFlagsFromConfig(
@@ -306,14 +306,14 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 		})
 
 		ginkgo.It("should return the first matching provider", func() {
-			provider := credentialsProvider.getClusterAccessorFromClusterProfile(clusterProfile)
+			provider := cfg.getClusterAccessorFromClusterProfile(clusterProfile)
 			gomega.Expect(provider).NotTo(gomega.BeNil())
 			gomega.Expect(provider.Name).To(gomega.Equal("test-provider-1"))
 			gomega.Expect(provider.Cluster.Server).To(gomega.Equal("https://test-server-1.com"))
 		})
 
 		ginkgo.It("should return nil when no matching provider is found", func() {
-			// Create a CredentialsProvider with providers that don't match the ClusterProfile
+			// Create a Config with providers that don't match the ClusterProfile
 			mismatchedCP := New([]Provider{
 				{Name: "different-provider", ExecConfig: &clientcmdapi.ExecConfig{Command: "cmd"}},
 			})
@@ -321,17 +321,17 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 			gomega.Expect(provider).To(gomega.BeNil())
 		})
 
-		ginkgo.It("should handle ClusterProfile with no credential providers", func() {
+		ginkgo.It("should handle ClusterProfile with no access providers", func() {
 			emptyClusterProfile := &v1alpha1.ClusterProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "empty-cluster"},
 				Status:     v1alpha1.ClusterProfileStatus{},
 			}
-			provider := credentialsProvider.getClusterAccessorFromClusterProfile(emptyClusterProfile)
+			provider := cfg.getClusterAccessorFromClusterProfile(emptyClusterProfile)
 			gomega.Expect(provider).To(gomega.BeNil())
 		})
 
 		ginkgo.It("should return a deep copy of the provider", func() {
-			provider := credentialsProvider.getClusterAccessorFromClusterProfile(clusterProfile)
+			provider := cfg.getClusterAccessorFromClusterProfile(clusterProfile)
 			gomega.Expect(provider).NotTo(gomega.BeNil())
 
 			// Modify the original cluster profile
@@ -397,7 +397,7 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 		})
 
 		ginkgo.It("should return an error when no matching provider is found", func() {
-			// Create a CredentialsProvider with providers that don't match the ClusterProfile
+			// Create a Config with providers that don't match the ClusterProfile
 			mismatchedCP := New([]Provider{
 				{Name: "different-provider", ExecConfig: &clientcmdapi.ExecConfig{Command: "cmd"}},
 			})
@@ -408,14 +408,14 @@ var _ = ginkgo.Describe("CredentialsProvider", func() {
 		})
 
 		ginkgo.It("should return an error when no exec config is found", func() {
-			// Create a CredentialsProvider with matching provider name but no ExecConfig
+			// Create a Config with matching provider name but no ExecConfig
 			noExecCP := New([]Provider{
 				{Name: "test-provider-1", ExecConfig: nil},
 			})
 			config, err := noExecCP.BuildConfigFromCP(clusterProfile)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(config).To(gomega.BeNil())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring("no exec credentials found for provider"))
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("no exec config found for provider"))
 		})
 
 		ginkgo.It("should build config successfully (no additional CLI args/env vars)", func() {
