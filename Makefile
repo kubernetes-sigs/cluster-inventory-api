@@ -140,6 +140,23 @@ docker-buildx: ## Build and push docker image for cross-platform support (PLUGIN
 		--attest type=sbom \
 		.
 
+PLUGIN_NAMES := $(sort $(patsubst plugins/%/cmd/plugin,%,$(wildcard plugins/*/cmd/plugin)))
+STAGING_REGISTRY ?= us-central1-docker.pkg.dev/k8s-staging-images/cluster-inventory-api
+RELEASE_REGISTRY := $(if $(REGISTRY),$(REGISTRY),$(STAGING_REGISTRY))
+
+.PHONY: release-staging
+release-staging: ## Build and push all plugin images to the staging registry (VERSION required)
+	@[ "$(origin VERSION)" = "command line" ] || [ "$(origin VERSION)" = "environment" ] \
+		|| { echo "VERSION must be set explicitly (e.g. VERSION=v0.1.0)"; exit 1; }
+	@set -e; \
+	for plugin in $(PLUGIN_NAMES); do \
+		$(MAKE) docker-buildx \
+			PLUGIN_NAME=$$plugin \
+			REGISTRY=$(RELEASE_REGISTRY) \
+			VERSION=$(VERSION) \
+			PLATFORMS=$(PLATFORMS); \
+	done
+
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
