@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# E2E: Run controller-example as a Deployment in the hub cluster with plugin OCI
+# E2E: Run controller-example as a Job in the hub cluster with plugin OCI
 # image mounted via image volume. Assumes hub and spoke kind clusters already
 # exist and setup-kind-demo.sh was run.
 # Usage: e2e-controller-incluster.sh <plugin_name> <provider_name>
@@ -126,23 +126,21 @@ if [[ -z "${SPOKE_IP}" ]]; then
 	exit 1
 fi
 
-echo "--- Create controller-example Deployment in hub"
+echo "--- Create controller-example Job in hub"
 kubectl --context kind-hub apply -f - <<EOF
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: ${DEPLOY_NAME}
   namespace: ${DEPLOY_NS}
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: controller-example
+  backoffLimit: 0
   template:
     metadata:
       labels:
         app: controller-example
     spec:
+      restartPolicy: Never
       serviceAccountName: controller-example
       hostAliases:
         - hostnames: ["spoke-control-plane"]
@@ -176,35 +174,52 @@ spec:
                 path: provider-config.json
 EOF
 
-echo "--- Wait for Pod to start and verify logs"
-kubectl --context kind-hub -n "${DEPLOY_NS}" rollout status "deployment/${DEPLOY_NAME}" --timeout=120s || true
-
-# Wait for at least one pod to have produced logs (it runs and exits quickly)
-POD=""
+echo "--- Wait for Job to finish"
+STATE=""
 for i in $(seq 1 60); do
-	POD=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pods -l app=controller-example \
-		-o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-	if [[ -n "${POD}" ]]; then
-		# Wait until the container has terminated at least once (exit code available)
-		TERMINATED=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pod "${POD}" \
-			-o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || true)
-		STATE=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pod "${POD}" \
-			-o jsonpath='{.status.containerStatuses[0].state.terminated.reason}' 2>/dev/null || true)
-		if [[ -n "${TERMINATED}" || -n "${STATE}" ]]; then
-			break
-		fi
+	COMPLETE=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get "job/${DEPLOY_NAME}" \
+		-o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)
+	if [[ "${COMPLETE}" == "True" ]]; then
+		STATE="complete"
+		break
+	fi
+	FAILED=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get "job/${DEPLOY_NAME}" \
+		-o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)
+	if [[ "${FAILED}" == "True" ]]; then
+		STATE="failed"
+		break
 	fi
 	sleep 2
 done
 
-if [[ -z "${POD}" ]]; then
-	echo "ERROR: no pod found for deployment/${DEPLOY_NAME}" >&2
-	kubectl --context kind-hub get pods -A
-	exit 1
+POD=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pods \
+	-l "batch.kubernetes.io/job-name=${DEPLOY_NAME}" \
+	-o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+LOGS=""
+if [[ -n "${POD}" ]]; then
+	LOGS=$(kubectl --context kind-hub -n "${DEPLOY_NS}" logs "${POD}" 2>&1 || true)
+	echo "${LOGS}"
 fi
 
-LOGS=$(kubectl --context kind-hub -n "${DEPLOY_NS}" logs "${POD}" 2>&1)
-echo "${LOGS}"
+case "${STATE}" in
+	complete) ;;
+	failed)
+		echo "ERROR: Job failed (plugin: ${PLUGIN_NAME})" >&2
+		kubectl --context kind-hub -n "${DEPLOY_NS}" describe "job/${DEPLOY_NAME}" >&2 || true
+		exit 1
+		;;
+	*)
+		echo "ERROR: Job timed out (plugin: ${PLUGIN_NAME})" >&2
+		kubectl --context kind-hub -n "${DEPLOY_NS}" describe "job/${DEPLOY_NAME}" >&2 || true
+		exit 1
+		;;
+esac
+
+if [[ -z "${POD}" ]]; then
+	echo "ERROR: no pod found for job/${DEPLOY_NAME}" >&2
+	kubectl --context kind-hub get pods -A >&2 || true
+	exit 1
+fi
 
 if ! echo "${LOGS}" | grep -q "\[client-go\] Listed"; then
 	echo "ERROR: logs missing [client-go] Listed" >&2
