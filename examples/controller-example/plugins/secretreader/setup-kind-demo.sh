@@ -106,18 +106,21 @@ kind get kubeconfig --name "hub" > "${EXAMPLE_DIR}/hub.kubeconfig"
 echo "[7/9] Install ClusterProfile CRD on hub cluster"
 kubectl --context "kind-hub" apply -f "${REPO_ROOT}/config/crd/bases/multicluster.x-k8s.io_clusterprofiles.yaml"
 
-echo "[8/9] Create Secret on hub cluster with token"
+echo "[8/9] Create namespace and Secret on hub cluster with token"
+kubectl --context "kind-hub" create namespace "spoke-manager" --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 kubectl --context "kind-hub" create secret generic "spoke-1" \
+  --namespace spoke-manager \
   --from-literal=token="${TOKEN}" \
   --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 
 echo "[9/9] Create ClusterProfile on hub cluster and patch status with provider"
+kubectl --context "kind-hub" create namespace "fleet" --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 kubectl --context "kind-hub" apply -f - <<EOF
 apiVersion: multicluster.x-k8s.io/v1alpha1
 kind: ClusterProfile
 metadata:
   name: spoke-1
-  namespace: default
+  namespace: fleet
 spec:
   clusterManager:
     name: demo
@@ -148,5 +151,5 @@ STATUS_PATCH=$(cat <<EOF
 EOF
 )
 
-kubectl --context "kind-hub" patch clusterprofile "spoke-1" --type=merge --subresource=status -p "${STATUS_PATCH}"
+kubectl --context "kind-hub" patch clusterprofile "spoke-1" -n fleet --type=merge --subresource=status -p "${STATUS_PATCH}"
 

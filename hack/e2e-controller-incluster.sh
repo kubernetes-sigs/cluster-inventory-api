@@ -32,6 +32,8 @@ cd "${REPO_ROOT}"
 PLUGIN_IMAGE="localhost/${PLUGIN_NAME}:e2e"
 CONTROLLER_IMAGE="localhost/controller-example:e2e"
 DEPLOY_NAME="controller-example"
+DEPLOY_NS="spoke-manager"
+PROFILE_NS="fleet"
 
 echo "--- Build plugin OCI image and load into hub"
 docker buildx build \
@@ -51,7 +53,7 @@ docker buildx build \
 kind load docker-image "${CONTROLLER_IMAGE}" --name hub
 
 echo "--- Patch ClusterProfile spoke-1 so spoke server is reachable from hub (spoke-control-plane:6443)"
-kubectl --context kind-hub patch clusterprofile spoke-1 --type=json --subresource=status \
+kubectl --context kind-hub patch clusterprofile spoke-1 -n "${PROFILE_NS}" --type=json --subresource=status \
 	-p '[{"op":"replace","path":"/status/accessProviders/0/cluster/server","value":"https://spoke-control-plane:6443"}]'
 
 echo "--- Apply RBAC for controller-example on hub"
@@ -60,17 +62,14 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: controller-example
-  namespace: default
+  namespace: ${DEPLOY_NS}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: controller-example
-  namespace: default
+  namespace: ${DEPLOY_NS}
 rules:
-  - apiGroups: ["multicluster.x-k8s.io"]
-    resources: ["clusterprofiles"]
-    verbs: ["get"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
@@ -79,7 +78,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: controller-example
-  namespace: default
+  namespace: ${DEPLOY_NS}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -87,11 +86,36 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: controller-example
-    namespace: default
+    namespace: ${DEPLOY_NS}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: controller-example
+  namespace: ${PROFILE_NS}
+rules:
+  - apiGroups: ["multicluster.x-k8s.io"]
+    resources: ["clusterprofiles"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: controller-example
+  namespace: ${PROFILE_NS}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: controller-example
+subjects:
+  - kind: ServiceAccount
+    name: controller-example
+    namespace: ${DEPLOY_NS}
 EOF
 
 echo "--- Create provider-config ConfigMap (command stays ./bin/<name>-plugin; workingDir=/plugin)"
 kubectl --context kind-hub create configmap controller-example-provider-config \
+	--namespace "${DEPLOY_NS}" \
 	--from-file=provider-config.json="examples/controller-example/plugins/${PLUGIN_NAME}/provider-config.json" \
 	--dry-run=client -o yaml | kubectl --context kind-hub apply -f -
 
@@ -108,7 +132,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${DEPLOY_NAME}
-  namespace: default
+  namespace: ${DEPLOY_NS}
 spec:
   replicas: 1
   selector:
@@ -130,7 +154,7 @@ spec:
           workingDir: /plugin
           args:
             - -clusterprofile-provider-file=/config/provider-config.json
-            - -namespace=default
+            - -namespace=${PROFILE_NS}
             - -clusterprofile=spoke-1
           volumeMounts:
             - name: plugin-volume
@@ -153,18 +177,18 @@ spec:
 EOF
 
 echo "--- Wait for Pod to start and verify logs"
-kubectl --context kind-hub rollout status "deployment/${DEPLOY_NAME}" --timeout=120s || true
+kubectl --context kind-hub -n "${DEPLOY_NS}" rollout status "deployment/${DEPLOY_NAME}" --timeout=120s || true
 
 # Wait for at least one pod to have produced logs (it runs and exits quickly)
 POD=""
 for i in $(seq 1 60); do
-	POD=$(kubectl --context kind-hub get pods -l app=controller-example \
+	POD=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pods -l app=controller-example \
 		-o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 	if [[ -n "${POD}" ]]; then
 		# Wait until the container has terminated at least once (exit code available)
-		TERMINATED=$(kubectl --context kind-hub get pod "${POD}" \
+		TERMINATED=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pod "${POD}" \
 			-o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || true)
-		STATE=$(kubectl --context kind-hub get pod "${POD}" \
+		STATE=$(kubectl --context kind-hub -n "${DEPLOY_NS}" get pod "${POD}" \
 			-o jsonpath='{.status.containerStatuses[0].state.terminated.reason}' 2>/dev/null || true)
 		if [[ -n "${TERMINATED}" || -n "${STATE}" ]]; then
 			break
@@ -179,7 +203,7 @@ if [[ -z "${POD}" ]]; then
 	exit 1
 fi
 
-LOGS=$(kubectl --context kind-hub logs "${POD}" 2>&1)
+LOGS=$(kubectl --context kind-hub -n "${DEPLOY_NS}" logs "${POD}" 2>&1)
 echo "${LOGS}"
 
 if ! echo "${LOGS}" | grep -q "\[client-go\] Listed"; then
