@@ -84,17 +84,20 @@ users:
 EOF
 )
 
+kubectl --context "kind-hub" create namespace "spoke-manager" --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 kubectl --context "kind-hub" create secret generic "spoke-1-kubeconfig" \
+  --namespace spoke-manager \
   --from-literal=value="${KUBECONFIG_YAML}" \
   --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 
 echo "[7/7] Create ClusterProfile on hub cluster and patch status with provider"
+kubectl --context "kind-hub" create namespace "fleet" --dry-run=client -o yaml | kubectl --context "kind-hub" apply -f -
 kubectl --context "kind-hub" apply -f - <<EOF
 apiVersion: multicluster.x-k8s.io/v1alpha1
 kind: ClusterProfile
 metadata:
   name: spoke-1
-  namespace: default
+  namespace: fleet
 spec:
   clusterManager:
     name: demo
@@ -115,7 +118,7 @@ STATUS_PATCH=$(cat <<EOF
               "extension": {
                 "name": "spoke-1-kubeconfig",
                 "key": "value",
-                "namespace": "default",
+                "namespace": "spoke-manager",
                 "context": "${CONTEXT_NAME}"
               }
             }
@@ -128,5 +131,5 @@ STATUS_PATCH=$(cat <<EOF
 EOF
 )
 
-kubectl --context "kind-hub" patch clusterprofile "spoke-1" --type=merge --subresource=status -p "${STATUS_PATCH}"
+kubectl --context "kind-hub" patch clusterprofile "spoke-1" -n fleet --type=merge --subresource=status -p "${STATUS_PATCH}"
 

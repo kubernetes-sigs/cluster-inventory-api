@@ -43,7 +43,7 @@ make build-controller-example
 ```bash
 KUBECONFIG=./examples/controller-example/hub.kubeconfig ./examples/controller-example/controller-example.bin \
   -clusterprofile-provider-file ./examples/controller-example/plugins/secretreader/provider-config.json \
-  -namespace default \
+  -namespace fleet \
   -clusterprofile spoke-1
 ```
 

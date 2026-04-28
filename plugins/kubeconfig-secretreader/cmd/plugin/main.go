@@ -211,9 +211,10 @@ func (p Provider) GetToken(
 	return status, nil
 }
 
-// inferNamespace determines the namespace to read Secrets from, preferring kubeconfig current-context
+// inferNamespace returns the namespace to read Secrets from, preferring the
+// kubeconfig current-context namespace and falling back to the namespace of
+// the Pod this process runs in.
 func inferNamespace() string {
-	// kubeconfig current-context namespace
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if path := os.Getenv("KUBECONFIG"); strings.TrimSpace(path) != "" {
 		rules.ExplicitPath = path
@@ -222,13 +223,6 @@ func inferNamespace() string {
 	if n, _, err := cc.Namespace(); err == nil && strings.TrimSpace(n) != "" {
 		return n
 	}
-	// in-cluster: try reading from service account namespace file
-	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
-		if ns := strings.TrimSpace(string(data)); ns != "" {
-			return ns
-		}
-	}
-	// fallback to default namespace
 	return "default"
 }
 
