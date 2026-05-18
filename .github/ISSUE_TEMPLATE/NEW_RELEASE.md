@@ -24,7 +24,7 @@ labels: kind/release
 
 ### Promote
 
-- [ ] Promotion PR created: `kpromo pr --fork <yourname> --project cluster-inventory-api --tag v<version>`
+- [ ] Promotion PR created: `kpromo pr --fork <yourname> --project cluster-inventory-api --tag v<version> --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/cluster-inventory-api`
 - [ ] Promotion PR reviewed and merged
 
 ### Publish
@@ -35,4 +35,3 @@ labels: kind/release
 - [ ] Announcement sent
 
 ## Changelog
-
