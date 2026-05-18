@@ -16,7 +16,7 @@ Before the first release, the following must exist in `kubernetes/k8s.io`:
 
 - `registry.k8s.io/images/k8s-staging-cluster-inventory-api/OWNERS`
 - `registry.k8s.io/images/k8s-staging-cluster-inventory-api/images.yaml`
-- `registry.k8s.io/manifests/k8s-staging-cluster-inventory-api/promoter-manifest.yaml` (maps `k8s-staging-cluster-inventory-api` to `cluster-inventory-api` under `registry.k8s.io`)
+- `registry.k8s.io/manifests/k8s-staging-cluster-inventory-api/promoter-manifest.yaml` (maps the Artifact Registry staging repository to `registry.k8s.io/cluster-inventory-api`)
 
 See the [registry.k8s.io README](https://github.com/kubernetes/k8s.io/tree/main/registry.k8s.io) for setup details.
 
@@ -27,7 +27,11 @@ See the [registry.k8s.io README](https://github.com/kubernetes/k8s.io/tree/main/
 3. The test-infra postsubmit job builds all plugin images and pushes them to the staging registry (`us-central1-docker.pkg.dev/k8s-staging-images/cluster-inventory-api`).
 4. Create a promotion PR in `kubernetes/k8s.io` using [`kpromo`](https://github.com/kubernetes-sigs/promo-tools):
    ```bash
-   kpromo pr --fork <yourname> --project cluster-inventory-api --tag v1.0.0
+   kpromo pr \
+     --fork <yourname> \
+     --project cluster-inventory-api \
+     --tag v1.0.0 \
+     --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/cluster-inventory-api
    ```
 5. After the promotion PR is reviewed and merged, the images become available at `registry.k8s.io/cluster-inventory-api/<plugin>:<tag>`.
 6. Publish the draft GitHub release and close the release issue.
