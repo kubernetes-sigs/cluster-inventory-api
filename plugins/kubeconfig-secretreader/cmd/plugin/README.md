@@ -5,6 +5,7 @@ When executed by a controller, this plugin reads a kubeconfig from a Kubernetes 
 See also:
 
 - Controller example: [`examples/controller-example/plugins/kubeconfig-secretreader/README.md`](../../../../examples/controller-example/plugins/kubeconfig-secretreader/README.md)
+- Published plugin image usage: [`docs/plugin-images.md`](../../../../docs/plugin-images.md)
 
 It supports:
 

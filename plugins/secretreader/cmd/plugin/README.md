@@ -5,6 +5,7 @@ When executed by a controller, this plugin reads the `token` from the Kubernetes
 See also:
 
 - Controller example: [`examples/controller-example/plugins/secretreader/README.md`](../../../../examples/controller-example/plugins/secretreader/README.md)
+- Published plugin image usage: [`docs/plugin-images.md`](../../../../docs/plugin-images.md)
 
 The specification follows the Secret Reader plugin KEP.
 

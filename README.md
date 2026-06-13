@@ -55,6 +55,11 @@ The `PlacementDecision API` solves the integration explosion problem:
 - **Enables consumer portability**: New consumers work with all schedulers by implementing one standard API.
 - **Simplifies RBAC**: One resource schema to secure instead of different permissions for each scheduler's API.
 
+## Plugin OCI Images
+
+Published plugin images and runtime consumption patterns are documented in
+[Using Plugin OCI Images](docs/plugin-images.md).
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).

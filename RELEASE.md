@@ -48,7 +48,9 @@ A release checklist is available as an [issue template](.github/ISSUE_TEMPLATE/N
 For a high-level project release (e.g. announcing a set of plugin versions):
 
 1. Open an issue proposing a release with a changelog since the last release.
-2. The release proposal follows a **lazy consensus** model: the proposal is approved unless an [OWNER](OWNERS) objects within **two weeks** of the issue being opened. Silence is treated as approval.
+2. The approval process depends on the type of release:
+   - **Patch releases** may need to ship critical fixes quickly. Depending on the situation and the scope of the changes, a patch release may proceed once it has sign-off from at least **two maintainers**.
+   - **Minor and major releases** follow a **lazy consensus** model: the proposal is approved unless an [OWNER](OWNERS) objects within **two weeks** of the issue being opened. Silence is treated as approval.
 3. An OWNER pushes a release tag (e.g. `v1.0.0`) to trigger the release process described above.
 4. Close the release issue.
 5. Optionally send an announcement (e.g. to the project mailing list or Slack).
