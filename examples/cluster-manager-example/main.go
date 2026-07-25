@@ -81,7 +81,7 @@ func main() {
 		Kubernetes: "1.32.0",
 	}
 
-	// 5c. Set cluster properties (KEP-2149)
+	// 5c. Set cluster properties (well-known names from KEP-2149)
 	createdCP.Status.Properties = []v1alpha1.Property{
 		{
 			Name:             "topology.kubernetes.io/region",

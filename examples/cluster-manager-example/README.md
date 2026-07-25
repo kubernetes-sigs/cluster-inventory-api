@@ -2,7 +2,7 @@
 
 A minimal Go program that demonstrates how a **cluster manager** creates and maintains `ClusterProfile` objects using the Cluster Inventory API.
 
-This example is the companion code for the [Guide for Cluster Managers](https://multicluster.sigs.k8s.io/implementations/cluster-inventory-api-implementation/guide-cluster-manager-implementers/).
+This example is the companion code for the [Guide for Cluster Managers](https://multicluster.sigs.k8s.io/implementations/cluster-inventory-api-implementations/guide-cluster-manager-implementers/).
 
 ### What It Does
 
@@ -14,7 +14,7 @@ This example is the companion code for the [Guide for Cluster Managers](https://
 3. Updates the `ClusterProfile` status with:
    - `ControlPlaneHealthy` condition
    - Kubernetes version
-   - Cluster properties (region, zone, cluster-id)
+   - Cluster properties (region, zone)
 
 ### Prerequisites
 

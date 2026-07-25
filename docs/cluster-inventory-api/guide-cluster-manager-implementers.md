@@ -2,7 +2,7 @@
 
 This is a step-by-step guide for building your own cluster manager that publishes `ClusterProfile` objects for the clusters it manages. By the end, you will have a working local Kind setup and a Go program that creates `ClusterProfile` objects with health conditions, properties, and version information — ready to be consumed by tools like [Kueue](https://kueue.sigs.k8s.io/), [Knative Operator](https://knative.dev/), or [multicluster-runtime](https://github.com/kubernetes-sigs/multicluster-runtime).
 
-For more information on existing cluster manager implementations, see: [Cluster Inventory API Implementations](./index.md#cluster-managers).
+For more information on existing cluster manager implementations, see: [Cluster Inventory API Implementations](./index.md#cluster-managers). If you are building a consumer instead, see the [Guide for ClusterProfile Consumers](./guide-cluster-profile-consumers.md). For projects migrating from proprietary cluster registry APIs, see the [Migration Notes](./migration-notes.md).
 
 **What you will build:** A Go program that creates a `ClusterProfile` and populates its status — the same pattern your production controller would use.
 
@@ -268,9 +268,9 @@ createdCP.Status.Version = v1alpha1.ClusterVersion{
 }
 ```
 
-### 6.3 Properties (KEP-2149)
+### 6.3 Properties
 
-Properties let consumers make scheduling and placement decisions without querying individual member clusters. Use the standardized property names from [KEP-2149](https://github.com/kubernetes/enhancements/tree/master/keps/sig-multicluster/2149-clusterid):
+Properties let consumers make scheduling and placement decisions without querying individual member clusters. Well-known property names are defined in [KEP-2149 (ClusterProperty)](https://github.com/kubernetes/enhancements/tree/master/keps/sig-multicluster/2149-clusterid); any custom name is also valid:
 
 | Property name | Description |
 |---------------|-------------|
@@ -376,7 +376,7 @@ createdCP.Status.AccessProviders = []v1alpha1.AccessProvider{
             // Pass cluster-specific data to the exec plugin via the reserved extension
             Extensions: []clientcmdv1.NamedExtension{
                 {
-                    // This extension key is defined by KEP-5339 and the client-go exec credential API
+                    // This extension key is defined by the client-go exec credential API (KEP-541); KEP-5339 reuses it
                     Name: "client.authentication.k8s.io/exec",
                     Extension: runtime.RawExtension{
                         // The exec plugin reads this JSON from ExecCredential.Spec.Cluster.Config
@@ -465,3 +465,5 @@ For complete working examples, see:
 - **[`examples/cluster-manager-example/`](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/main/examples/cluster-manager-example)** — the companion code for this guide. Creates a `ClusterProfile` with status (conditions, version, properties) on a Kind cluster.
 - **[`examples/controller-example/`](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/main/examples/controller-example)** — a consumer controller that reads a `ClusterProfile` and connects to the spoke cluster using the `access` package. Includes demo scripts for the `secretreader` and `kubeconfig-secretreader` plugins.
 - **[OCM's hub-side ClusterProfile reconciler](https://github.com/open-cluster-management-io/ocm/tree/main/pkg/registration/hub/clusterprofile)** — a production-grade example that syncs `ManagedCluster` objects to `ClusterProfile` objects, maintained by the Open Cluster Management project.
+
+For projects migrating from proprietary cluster registry APIs (OCM, Karmada, GKE Fleet), see the [Migration Notes](./migration-notes.md).
