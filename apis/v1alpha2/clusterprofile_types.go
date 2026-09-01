@@ -217,6 +217,13 @@ const (
 	// The purpose of this label is to make filter clusters from different cluster managers easier.
 	LabelClusterManagerKey = "x-k8s.io/cluster-manager"
 
+	// LabelInventoryMemberIDKey correlates ClusterProfiles that represent the same member cluster.
+	// When set, the value MUST be non-empty. The platform administrator SHOULD coordinate values
+	// on a hub so that the same member cluster uses the same value and different member clusters
+	// use different values. Cluster managers SHOULD keep the value unchanged while a ClusterProfile
+	// continues to represent the same member cluster.
+	LabelInventoryMemberIDKey = "multicluster.x-k8s.io/inventory-member-id"
+
 	// LabelClusterSetKey is used on a namespace to indicate the clusterset that a ClusterProfile belongs to.
 	// If a cluster inventory represents a ClusterSet,
 	// all its ClusterProfile objects MUST be part of the same clusterSet
