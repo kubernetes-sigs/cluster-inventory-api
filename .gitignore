@@ -31,3 +31,7 @@ go.work
 *~
 *.kubeconfig
 *.bin
+
+# Conformance suite generated reports
+conformance/report.html
+conformance/report.yaml
