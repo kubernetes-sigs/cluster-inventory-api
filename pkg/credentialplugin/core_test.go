@@ -155,7 +155,9 @@ type fakeProvider struct {
 
 func (f fakeProvider) Name() string { return f.name }
 
-func (f fakeProvider) GetToken(_ context.Context, _ clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error) {
+func (f fakeProvider) GetToken(
+	_ context.Context, _ clientauthenticationv1.ExecCredential,
+) (clientauthenticationv1.ExecCredentialStatus, error) {
 	if f.err != "" {
 		return clientauthenticationv1.ExecCredentialStatus{}, errors.New(f.err)
 	}
@@ -183,8 +185,15 @@ func TestHelperProcess(t *testing.T) {
 func runHelperProcess(t *testing.T, env map[string]string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestHelperProcess$")
+	// Start from an empty environment (not os.Environ()) so a case like
+	// "missing exec info" is hermetic: it must not accidentally see a
+	// KUBERNETES_EXEC_INFO left over from the environment this test runs in.
 	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+	// go test -cover passes GOCOVERDIR to this process so it can write its own
+	// coverage counters; forward it so the subprocess's counters (covering
+	// Run's statements) land in the same directory and get merged into the
+	// package's reported coverage instead of being silently dropped.
 	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
 		cmd.Env = append(cmd.Env, "GOCOVERDIR="+dir)
 	}
@@ -210,6 +219,7 @@ func runHelperProcess(t *testing.T, env map[string]string) (stdout, stderr strin
 
 func TestRun(t *testing.T) {
 	t.Run("empty provider name exits 1", func(t *testing.T) {
+		t.Parallel()
 		_, stderr, code := runHelperProcess(t, map[string]string{
 			"HELPER_NAME": "  ",
 		})
@@ -222,6 +232,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("missing exec info exits 1", func(t *testing.T) {
+		t.Parallel()
 		_, stderr, code := runHelperProcess(t, map[string]string{
 			"HELPER_NAME": "fake",
 		})
@@ -234,6 +245,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("GetToken error exits 1", func(t *testing.T) {
+		t.Parallel()
 		_, stderr, code := runHelperProcess(t, map[string]string{
 			"HELPER_NAME":          "fake",
 			"HELPER_ERR":           "boom",
@@ -248,6 +260,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("success prints ExecCredential JSON and exits 0", func(t *testing.T) {
+		t.Parallel()
 		stdout, stderr, code := runHelperProcess(t, map[string]string{
 			"HELPER_NAME":          "fake",
 			"HELPER_TOKEN":         "my-token",
@@ -256,6 +269,9 @@ func TestRun(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr)
 		}
+		if stderr != "" {
+			t.Errorf("stderr = %q, want empty on success", stderr)
+		}
 
 		var ec clientauthenticationv1.ExecCredential
 		if err := json.Unmarshal([]byte(stdout), &ec); err != nil {
@@ -263,6 +279,9 @@ func TestRun(t *testing.T) {
 		}
 		if ec.Kind != "ExecCredential" {
 			t.Errorf("Kind = %q, want %q", ec.Kind, "ExecCredential")
+		}
+		if ec.APIVersion != clientauthenticationv1.SchemeGroupVersion.Identifier() {
+			t.Errorf("APIVersion = %q, want %q", ec.APIVersion, clientauthenticationv1.SchemeGroupVersion.Identifier())
 		}
 		if ec.Status == nil || ec.Status.Token != "my-token" {
 			t.Fatalf("Status.Token = %+v, want token %q", ec.Status, "my-token")
