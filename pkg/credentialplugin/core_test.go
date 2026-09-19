@@ -17,7 +17,11 @@ limitations under the License.
 package credentialplugin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +141,131 @@ func TestBuildExecCredentialJSON(t *testing.T) {
 		}
 		if !ec.Status.ExpirationTimestamp.Time.Equal(exp) {
 			t.Errorf("ExpirationTimestamp = %v, want %v", ec.Status.ExpirationTimestamp.Time, exp)
+		}
+	})
+}
+
+// fakeProvider is a Provider driven entirely by environment variables, so it
+// can be reconstructed inside the TestHelperProcess subprocess below.
+type fakeProvider struct {
+	name  string
+	token string
+	err   string
+}
+
+func (f fakeProvider) Name() string { return f.name }
+
+func (f fakeProvider) GetToken(_ context.Context, _ clientauthenticationv1.ExecCredential) (clientauthenticationv1.ExecCredentialStatus, error) {
+	if f.err != "" {
+		return clientauthenticationv1.ExecCredentialStatus{}, errors.New(f.err)
+	}
+	return clientauthenticationv1.ExecCredentialStatus{Token: f.token}, nil
+}
+
+// TestHelperProcess is not a real test. It is re-executed as a subprocess by
+// TestRun so that Run's os.Exit calls terminate the subprocess instead of the
+// test binary itself.
+func TestHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	Run(fakeProvider{
+		name:  os.Getenv("HELPER_NAME"),
+		token: os.Getenv("HELPER_TOKEN"),
+		err:   os.Getenv("HELPER_ERR"),
+	})
+	// Run only calls os.Exit on failure paths; a normal return means success,
+	// so exit cleanly before the surrounding "go test" harness prints its own
+	// PASS/summary output to stdout.
+	os.Exit(0)
+}
+
+func runHelperProcess(t *testing.T, env map[string]string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		cmd.Env = append(cmd.Env, "GOCOVERDIR="+dir)
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	if err == nil {
+		return outBuf.String(), errBuf.String(), 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return outBuf.String(), errBuf.String(), exitErr.ExitCode()
+	}
+	t.Fatalf("failed to run helper process: %v", err)
+	return "", "", -1
+}
+
+func TestRun(t *testing.T) {
+	t.Run("empty provider name exits 1", func(t *testing.T) {
+		_, stderr, code := runHelperProcess(t, map[string]string{
+			"HELPER_NAME": "  ",
+		})
+		if code != 1 {
+			t.Fatalf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr, "provider Name() returned empty string") {
+			t.Errorf("stderr = %q, want it to mention empty provider name", stderr)
+		}
+	})
+
+	t.Run("missing exec info exits 1", func(t *testing.T) {
+		_, stderr, code := runHelperProcess(t, map[string]string{
+			"HELPER_NAME": "fake",
+		})
+		if code != 1 {
+			t.Fatalf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr, "[fake]") || !strings.Contains(stderr, "KUBERNETES_EXEC_INFO") {
+			t.Errorf("stderr = %q, want it to mention plugin name and KUBERNETES_EXEC_INFO", stderr)
+		}
+	})
+
+	t.Run("GetToken error exits 1", func(t *testing.T) {
+		_, stderr, code := runHelperProcess(t, map[string]string{
+			"HELPER_NAME":          "fake",
+			"HELPER_ERR":           "boom",
+			"KUBERNETES_EXEC_INFO": execInfoJSON("https://example.com:6443"),
+		})
+		if code != 1 {
+			t.Fatalf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr, "[fake]") || !strings.Contains(stderr, "boom") {
+			t.Errorf("stderr = %q, want it to mention plugin name and the GetToken error", stderr)
+		}
+	})
+
+	t.Run("success prints ExecCredential JSON and exits 0", func(t *testing.T) {
+		stdout, stderr, code := runHelperProcess(t, map[string]string{
+			"HELPER_NAME":          "fake",
+			"HELPER_TOKEN":         "my-token",
+			"KUBERNETES_EXEC_INFO": execInfoJSON("https://example.com:6443"),
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr)
+		}
+
+		var ec clientauthenticationv1.ExecCredential
+		if err := json.Unmarshal([]byte(stdout), &ec); err != nil {
+			t.Fatalf("failed to unmarshal stdout %q: %v", stdout, err)
+		}
+		if ec.Kind != "ExecCredential" {
+			t.Errorf("Kind = %q, want %q", ec.Kind, "ExecCredential")
+		}
+		if ec.Status == nil || ec.Status.Token != "my-token" {
+			t.Fatalf("Status.Token = %+v, want token %q", ec.Status, "my-token")
 		}
 	})
 }
