@@ -14,7 +14,7 @@ one of these changes.
   The `v1alpha2` ClusterProfile status removes the deprecated
   `status.credentialProviders` field. Use `status.accessProviders` instead.
   `status.accessProviders` has been available in a released version since
-  `v0.1.3`.
+  `v0.1.0`.
 
 - `v1alpha2` clients and `pkg/access` in `v0.2.0` do not read
   `status.credentialProviders`.
@@ -75,7 +75,7 @@ the deprecated `v1alpha1` endpoint.
 The ClusterProfile CRD now serves a new multicluster.x-k8s.io/v1alpha2 API
 version. The v1alpha2 ClusterProfile status removes the deprecated
 status.credentialProviders field; use status.accessProviders instead.
-status.accessProviders has been available since v0.1.3. The v1alpha1 API
+status.accessProviders has been available since v0.1.0. The v1alpha1 API
 version remains served and remains the storage version in v0.2.0, with
 status.credentialProviders retained there for compatibility. Consumers using
 pkg/access in v0.2.0 must pass v1alpha2 ClusterProfile objects and should ensure
