@@ -101,9 +101,9 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 			}
 		})
 
-	// The KEP says the cluster manager label "needs to be added" while the API
-	// documentation calls it recommended; only the value rule is a MUST in both,
-	// so the label's presence is reported as Optional and its value as Required.
+	// KEP-4322 lets a cluster manager add the cluster manager label (MAY) and
+	// only constrains its value when the label is present (MUST), so the label's
+	// presence is reported as Optional and its value as Required.
 	SpecifyWithSpecRef(fmt.Sprintf("The %s label of a ClusterProfile must have the name of the cluster manager "+
 		"as its value", cpv1alpha2.LabelClusterManagerKey),
 		kep4322Ref("cluster-manager"),
@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 			}
 		})
 
-	SpecifyWithSpecRef(fmt.Sprintf("The cluster manager should add the %s label to each ClusterProfile it creates",
+	SpecifyWithSpecRef(fmt.Sprintf("The cluster manager may add the %s label to each ClusterProfile it creates",
 		cpv1alpha2.LabelClusterManagerKey),
 		kep4322Ref("cluster-manager"),
 		ginkgo.Label(OptionalLabel), func(ctx context.Context) {

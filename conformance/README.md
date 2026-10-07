@@ -7,7 +7,7 @@ tracked in [issue #60](https://github.com/kubernetes-sigs/cluster-inventory-api/
 The suite follows the model of the
 [MCS-API conformance suite](https://github.com/kubernetes-sigs/mcs-api/tree/master/conformance):
 a Ginkgo v2 test binary that runs against a cluster serving the APIs, tags
-specs as `Required` (KEP MUSTs) or `Optional` (KEP SHOULDs), links each spec
+specs as `Required` (KEP MUSTs) or `Optional` (KEP SHOULDs and MAYs), links each spec
 to the section of KEP-4322 it verifies, and generates a conformance report.
 
 The framework is not tied to one API: each API is a separate section of the
