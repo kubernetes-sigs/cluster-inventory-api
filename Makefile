@@ -69,6 +69,58 @@ test: manifests generate fmt vet envtest ## Run tests.
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
 
+CONFORMANCE_ARGS ?=
+# Inventory namespace and cluster manager name used when the suite is exercised
+# against a seeded sample inventory (envtest/kind self-test flows below).
+CONFORMANCE_NAMESPACE ?= conformance-inventory
+CONFORMANCE_MANAGER ?= conformance-sample-manager
+
+.PHONY: test-conformance
+test-conformance: ## Run the ClusterProfile API conformance suite (suite flags via CONFORMANCE_ARGS).
+	cd conformance && go test ./... -v -ginkgo.v -args $(CONFORMANCE_ARGS)
+
+ENVTEST_KUBECONFIG ?= $(LOCALBIN)/conformance-envtest.kubeconfig
+
+# The control plane helper is built and executed directly (not via `go run`) so the
+# clean-up trap signals the process that owns the control plane.
+.PHONY: test-conformance-envtest
+test-conformance-envtest: envtest manifests ## Exercise the conformance suite against a seeded envtest control plane.
+	@set -e; \
+	go build -o $(LOCALBIN)/conformance-envtest ./hack/conformance-envtest; \
+	rm -f $(ENVTEST_KUBECONFIG); \
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		$(LOCALBIN)/conformance-envtest --kubeconfig-out $(ENVTEST_KUBECONFIG) & \
+	ENVTEST_PID=$$!; \
+	trap 'kill $$ENVTEST_PID 2>/dev/null || true; wait $$ENVTEST_PID 2>/dev/null || true' EXIT; \
+	for i in $$(seq 1 60); do if [ -f $(ENVTEST_KUBECONFIG) ]; then break; fi; sleep 1; done; \
+	if [ ! -f $(ENVTEST_KUBECONFIG) ]; then echo "the envtest control plane did not start"; exit 1; fi; \
+	go run ./hack/conformance-seed --kubeconfig $(ENVTEST_KUBECONFIG) \
+		--namespace $(CONFORMANCE_NAMESPACE) --cluster-manager $(CONFORMANCE_MANAGER); \
+	$(MAKE) test-conformance CONFORMANCE_ARGS="--kubeconfig $(ENVTEST_KUBECONFIG) \
+		--namespace $(CONFORMANCE_NAMESPACE) --cluster-manager $(CONFORMANCE_MANAGER) $(CONFORMANCE_ARGS)"
+
+# KIND_NODE_IMAGE optionally pins the node image, e.g. KIND_NODE_IMAGE=kindest/node:v1.35.0.
+KIND_CLUSTER_NAME ?= cluster-inventory-conformance
+KIND_NODE_IMAGE ?=
+
+.PHONY: kind-conformance-up
+kind-conformance-up: kind manifests ## Create the conformance kind cluster (if needed) and install the CRDs into it.
+	@$(KIND) get clusters 2>/dev/null | grep -qx "$(KIND_CLUSTER_NAME)" || \
+		$(KIND) create cluster --name $(KIND_CLUSTER_NAME) $(if $(KIND_NODE_IMAGE),--image $(KIND_NODE_IMAGE))
+	$(KUBECTL) --context kind-$(KIND_CLUSTER_NAME) apply -f config/crd/bases
+	$(KUBECTL) --context kind-$(KIND_CLUSTER_NAME) wait --for=condition=Established --timeout=60s -f config/crd/bases
+
+.PHONY: test-conformance-kind
+test-conformance-kind: kind-conformance-up ## Exercise the conformance suite against the kind cluster, seeding a sample inventory first.
+	go run ./hack/conformance-seed --context kind-$(KIND_CLUSTER_NAME) \
+		--namespace $(CONFORMANCE_NAMESPACE) --cluster-manager $(CONFORMANCE_MANAGER)
+	$(MAKE) test-conformance CONFORMANCE_ARGS="--context kind-$(KIND_CLUSTER_NAME) \
+		--namespace $(CONFORMANCE_NAMESPACE) --cluster-manager $(CONFORMANCE_MANAGER) $(CONFORMANCE_ARGS)"
+
+.PHONY: kind-conformance-down
+kind-conformance-down: kind ## Delete the conformance kind cluster.
+	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
 	$(GOLANGCI_LINT) run
@@ -199,12 +251,14 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+KIND ?= $(LOCALBIN)/kind-$(KIND_VERSION)
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.0
 ENVTEST_VERSION ?= release-0.23
 GOLANGCI_LINT_VERSION ?= v2.9.0
+KIND_VERSION ?= v0.32.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -220,6 +274,11 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: kind
+kind: $(KIND) ## Download kind locally if necessary.
+$(KIND): $(LOCALBIN)
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
