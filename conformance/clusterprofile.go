@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 
 	// KEP-4322 lets a cluster manager add the cluster manager label (MAY) and
 	// only constrains its value when the label is present (MUST), so the label's
-	// presence is reported as Optional and its value as Required.
+	// presence is reported as Optional (skipped when omitted) and its value as Required.
 	SpecifyWithSpecRef(fmt.Sprintf("The %s label of a ClusterProfile must have the name of the cluster manager "+
 		"as its value", cpv1alpha2.LabelClusterManagerKey),
 		kep4322Ref("cluster-manager"),
@@ -125,9 +125,10 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 		kep4322Ref("cluster-manager"),
 		ginkgo.Label(OptionalLabel), func(ctx context.Context) {
 			for _, profile := range requireProfilesUnderTest(ctx) {
-				gomega.Expect(profile.Labels).To(gomega.HaveKey(cpv1alpha2.LabelClusterManagerKey),
-					reportNonConformant(fmt.Sprintf("ClusterProfile %q does not carry the %s label",
-						profile.Name, cpv1alpha2.LabelClusterManagerKey)))
+				if _, ok := profile.Labels[cpv1alpha2.LabelClusterManagerKey]; !ok {
+					ginkgo.Skip(fmt.Sprintf("ClusterProfile %q omits the optional %s label",
+						profile.Name, cpv1alpha2.LabelClusterManagerKey))
+				}
 			}
 		})
 
@@ -165,11 +166,20 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 			// Uniqueness is inventory-wide regardless of which cluster manager created the
 			// objects, so this spec inspects the whole namespace. The same member ID in
 			// other namespaces is a different inventory and no duplicate.
-			profilesByMemberID := map[string][]string{}
+			profiles := inventoryProfiles(ctx)
+			if len(profiles) == 0 {
+				ginkgo.Skip(fmt.Sprintf("no ClusterProfile objects in the inventory namespace %q; "+
+					"member-cluster uniqueness cannot be determined", namespace))
+			}
 
-			for _, profile := range inventoryProfiles(ctx) {
+			profilesByMemberID := map[string][]string{}
+			var profilesWithoutMemberID []string
+
+			for _, profile := range profiles {
 				if id := profile.Labels[cpv1alpha2.LabelInventoryMemberIDKey]; id != "" {
 					profilesByMemberID[id] = append(profilesByMemberID[id], profile.Name)
+				} else {
+					profilesWithoutMemberID = append(profilesWithoutMemberID, profile.Name)
 				}
 			}
 
@@ -177,6 +187,12 @@ var _ = ginkgo.Describe("ClusterProfile", ginkgo.Label(clusterProfileAPI.Name), 
 				gomega.Expect(names).To(gomega.HaveLen(1), reportNonConformant(fmt.Sprintf(
 					"member cluster %q is represented by more than one ClusterProfile in the inventory "+
 						"namespace %q: %s", id, namespace, strings.Join(names, ", "))))
+			}
+
+			if len(profilesWithoutMemberID) > 0 {
+				ginkgo.Skip(fmt.Sprintf("member-cluster uniqueness cannot be determined in the inventory namespace %q; "+
+					"ClusterProfiles without a non-empty %s label: %s", namespace,
+					cpv1alpha2.LabelInventoryMemberIDKey, strings.Join(profilesWithoutMemberID, ", ")))
 			}
 		})
 

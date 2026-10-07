@@ -39,12 +39,20 @@ managers:
   inventory namespace (exactly as many as a positive `--expected-clusters`,
   at least one otherwise),
 - the `x-k8s.io/cluster-manager` label matches `spec.clusterManager.name`
-  when present (Required) and is set on managed profiles (Optional),
+  when present (Required), and its presence is reported separately (Optional;
+  skipped if any managed profile omits it),
 - the `multicluster.x-k8s.io/inventory-member-id` label is never empty when
   set (Required), is set on managed profiles (Optional), and identifies at
   most one ClusterProfile per member cluster within the inventory (Optional),
 - the `ControlPlaneHealthy` and `Joined` conditions and the member cluster's
   Kubernetes version are reported (Optional).
+
+The inventory-wide uniqueness check reports duplicate non-empty member IDs
+even if other profiles lack an ID. If no duplicate is found, it is skipped
+when the inventory is empty or any profile lacks a non-empty member ID:
+there is not enough information to determine whether each member cluster has
+at most one ClusterProfile. The skip reason is included in the HTML and YAML
+reports.
 
 ## Running against an implementation
 
