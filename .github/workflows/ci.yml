@@ -83,5 +83,8 @@ jobs:
           args: --timeout 5m0s
           working-directory: conformance
 
+      - name: Run conformance module unit tests
+        run: cd conformance && go test -race ./... -run '^TestUnit'
+
       - name: Run the conformance suite against a seeded envtest control plane
         run: make test-conformance-envtest

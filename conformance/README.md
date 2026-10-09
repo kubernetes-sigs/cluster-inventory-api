@@ -1,232 +1,154 @@
-# Cluster Inventory API Conformance Suite
+# Cluster Inventory API conformance
 
-Conformance tests for the Cluster Inventory APIs defined by
-[KEP-4322](https://github.com/kubernetes/enhancements/tree/master/keps/sig-multicluster/4322-cluster-inventory),
-tracked in [issue #60](https://github.com/kubernetes-sigs/cluster-inventory-api/issues/60).
+Cluster manager developers use this module to check the ClusterProfile objects
+that their implementation publishes. API consumers can use its reports to see
+which output conventions an implementation meets, for a fixed specification,
+API revision, suite revision, and implementation version.
 
-The suite follows the model of the
-[MCS-API conformance suite](https://github.com/kubernetes-sigs/mcs-api/tree/master/conformance):
-a Ginkgo v2 test binary that runs against a cluster serving the APIs, tags
-specs as `Required` (KEP MUSTs) or `Optional` (KEP SHOULDs and MAYs), links each spec
-to the section of KEP-4322 it verifies, and generates a conformance report.
+The observer reads one inventory namespace. Cluster registration and inventory
+selection belong to the implementation. The observer does not create, update,
+or delete ClusterProfiles, and it does not operate on member clusters.
 
-The framework is not tied to one API: each API is a separate section of the
-suite and of the report, can be selected on its own, and can be reported in
-its own file. The ClusterProfile API (aimed at cluster managers) is covered
-today; the PlacementDecision API (aimed at consumers) and the Placement API,
-once it lands, plug in the same way (see [Adding an API](#adding-an-api)).
+## Coverage
 
-## What the suite verifies
+`CLUSTERPROFILE-PRODUCER` covers the `ClusterProfile` API in
+`multicluster.x-k8s.io/v1alpha2`. The requirement catalog links to the fixed
+[KEP-4322 revision](https://github.com/kubernetes/enhancements/blob/3300d87b960c22051c66f1d1072e424a5cda5b5d/keps/sig-multicluster/4322-cluster-inventory/README.md).
 
-### ClusterProfile
+| Checks | Objects inspected | Acceptance |
+| --- | --- | --- |
+| API availability and namespace scope | API discovery and access to the selected inventory | Required |
+| Registered-cluster representation | Profiles selected by `spec.clusterManager.name` | At least one; an exact count when supplied by the runner |
+| Cluster manager label value | Selected profiles carrying `x-k8s.io/cluster-manager` | Equals `spec.clusterManager.name` |
+| Inventory member ID value | Selected profiles carrying `multicluster.x-k8s.io/inventory-member-id` | Non-empty |
+| Member uniqueness | All profiles in the namespace, including other managers | No repeated non-empty ID; missing IDs leave uniqueness unverified |
+| Optional capabilities | Selected profiles | Reported individually; enforced when claimed |
 
-ClusterProfile objects are created and reconciled by a cluster manager
-implementation to represent registered member clusters - they are not input
-resources created by API consumers. Exercising create/update/delete from a
-test would verify the CRD and the Kubernetes API server rather than an
-implementation, so the suite does not do that: CRD schema validation is
-covered by this repository's envtest-based integration tests
-(`test/integration`).
+The same member ID in another namespace belongs to another inventory and is
+not a duplicate in this inventory. A duplicate is reported even when other
+profiles omit IDs. The exact count does not establish a correspondence between
+registered member clusters and individual profiles; that precondition belongs
+to the implementation's runner.
 
-Instead, the suite **observes the implementation-managed ClusterProfile
-objects of one cluster inventory** - per KEP-4322, the inventory is defined by
-a namespace - and verifies the conventions the KEP places on cluster
-managers:
+These checks examine a snapshot of output conventions. Condition presence does
+not verify cluster health, and a non-empty version does not verify the member's
+actual version. Registration lifecycle, consumer behavior, credentials, and
+property propagation from member-cluster sources are outside this profile.
+CRD schema validation remains in the repository's integration tests.
 
-- the `clusterprofiles` resource is served in `multicluster.x-k8s.io/v1alpha2`
-  and is namespace scoped,
-- registered member clusters are represented by ClusterProfile objects in the
-  inventory namespace (exactly as many as a positive `--expected-clusters`,
-  at least one otherwise),
-- the `x-k8s.io/cluster-manager` label matches `spec.clusterManager.name`
-  when present (Required), and its presence is reported separately (Optional;
-  skipped if any managed profile omits it),
-- the `multicluster.x-k8s.io/inventory-member-id` label is never empty when
-  set (Required), is set on managed profiles (Optional), and identifies at
-  most one ClusterProfile per member cluster within the inventory (Optional),
-- the `ControlPlaneHealthy` and `Joined` conditions and the member cluster's
-  Kubernetes version are reported (Optional).
+## Implementation integration
 
-The inventory-wide uniqueness check reports duplicate non-empty member IDs
-even if other profiles lack an ID. If no duplicate is found, it is skipped
-when the inventory is empty or any profile lacks a non-empty member ID:
-there is not enough information to determine whether each member cluster has
-at most one ClusterProfile. The skip reason is included in the HTML and YAML
-reports.
-
-## Running against an implementation
-
-Register at least one cluster with the cluster manager under test using its
-own registration mechanism, then point the suite at the resulting inventory:
-
-```sh
-make test-conformance CONFORMANCE_ARGS="--kubeconfig $HOME/.kube/config \
-    --namespace fleet-system --cluster-manager my-cluster-manager"
-```
-
-Or directly:
-
-```sh
-cd conformance
-go test -v ./... -args --kubeconfig $HOME/.kube/config \
-    --namespace fleet-system --cluster-manager my-cluster-manager
-```
-
-The suite only needs permission to list ClusterProfile objects in the
-inventory namespace, so a namespaced Role is sufficient: it reads the
-namespace object to fail early on a wrong `--namespace`, but tolerates being
-forbidden to.
-
-The suite accepts the following flags:
-
-| Flag | Description |
-| ---- | ----------- |
-| `--kubeconfig` | Path to the kubeconfig of the cluster serving the Cluster Inventory APIs. Standard loading rules (`$KUBECONFIG`, `~/.kube/config`) apply if unset. Prefer an absolute path when running through `make`: the suite executes from the `conformance/` directory, so relative paths resolve against it. |
-| `--context` | Kubeconfig context to use. Defaults to the current context. |
-| `--namespace` | **Required.** The inventory namespace containing the ClusterProfile objects managed by the implementation under test. The suite only reads from it. |
-| `--cluster-manager` | Name of the cluster manager under test, as reported in `spec.clusterManager.name`. If unset, all ClusterProfile objects in the inventory namespace are verified. |
-| `--expected-clusters` | Number of member clusters registered with the cluster manager under test. When positive, the suite verifies that exactly that many ClusterProfile objects exist in the inventory namespace; `0` (the default) leaves the count unknown and the suite only verifies that at least one does, since a conformance run needs at least one registered cluster to observe. |
-| `--apis` | Comma-separated list of the APIs to test (`ClusterProfile`). Defaults to all APIs. |
-| `--report-format` | Comma-separated list of the report formats to write: `html`, `yaml`. Defaults to `html`. |
-| `--report-output` | `single` (default) writes one report covering all tested APIs; `per-api` writes one report per API. |
-| `--organization` | Name of the organization responsible for the implementation being tested. |
-| `--project` | Name of the implementation project being tested. |
-| `--version` | Version of the implementation being tested. |
-| `--url` | URL pointing to the implementation project or its documentation. |
-
-## Reports
-
-By default each run writes a single HTML report, `report.html`, covering all
-APIs, into the working directory (this directory when run via `make` or
-`go test`). The report options select what is written:
-
-```sh
-# HTML and YAML, one file per API: report-clusterprofile.html, report-clusterprofile.yaml
-make test-conformance CONFORMANCE_ARGS="... --report-format html,yaml --report-output per-api"
-
-# only the ClusterProfile API, as a single YAML report
-make test-conformance CONFORMANCE_ARGS="... --apis ClusterProfile --report-format yaml"
-```
-
-Single reports are named `report.<format>`, per-API reports
-`report-<api>.<format>` (lower-case API name); all of them are gitignored.
-Each report lists the tests of every reported API grouped by `Required` and
-`Optional`, with the totals per API and overall, and records the
-implementation metadata flags. An unknown API name in `--apis` fails the run
-before any spec is executed. `--apis` is applied as a Ginkgo label filter and
-combines with a `--ginkgo.label-filter` you pass yourself, e.g.
-`--ginkgo.label-filter=Required` to run only the Required specs.
-
-## Exercising the suite without an implementation
-
-Because the suite only observes, something has to play the cluster manager.
-`hack/conformance-seed` populates an inventory namespace with sample
-ClusterProfile objects shaped like those of a conformant implementation; the
-flows below use it so the suite itself can be exercised in CI and during
-development. They validate the suite and the CRDs - not a real
-implementation.
-
-`make test-conformance-envtest` runs everything against a temporary
-[envtest](https://book.kubebuilder.io/reference/envtest) control plane with
-this repository's CRDs installed: it downloads the envtest binaries, starts
-the control plane, seeds the sample inventory, runs the suite, and tears
-everything down again:
-
-```sh
-make test-conformance-envtest
-```
-
-The `Conformance Suite` CI job runs this flow, together with the module's
-unit tests and lint, on every push and pull request.
-
-`make test-conformance-kind` does the same against a kind cluster named
-`cluster-inventory-conformance` (creating it if needed and installing the
-CRDs). Docker (or another kind-supported provider) and `kubectl` must be
-available; everything else is fetched automatically. Note that creating the
-cluster switches your current kubectl context, as usual with kind.
-
-```sh
-make test-conformance-kind
-
-# pin the node image / Kubernetes version:
-make test-conformance-kind KIND_NODE_IMAGE=kindest/node:v1.35.0
-
-# tear the cluster down when done:
-make kind-conformance-down
-```
-
-Both flows use the `CONFORMANCE_NAMESPACE` (default `conformance-inventory`)
-and `CONFORMANCE_MANAGER` (default `conformance-sample-manager`) make
-variables for the seeded inventory, and pass `CONFORMANCE_ARGS` through, so
-the report options above apply to them as well.
-
-The control plane helper can also be run standalone to keep a cluster around
-for iterating. From the repository root:
-
-```sh
-make envtest
-KUBEBUILDER_ASSETS="$(bin/setup-envtest-release-0.23 use 1.35.0 --bin-dir bin -p path)" \
-    go run ./hack/conformance-envtest --kubeconfig-out envtest.kubeconfig &
-go run ./hack/conformance-seed --kubeconfig $PWD/envtest.kubeconfig
-make test-conformance CONFORMANCE_ARGS="--kubeconfig $PWD/envtest.kubeconfig \
-    --namespace conformance-inventory --cluster-manager conformance-sample-manager"
-kill %1
-```
-
-## Importing the suite
-
-The specs and the `TestConformance` entry point live in non-test files so
-implementations can embed the suite in their own pipelines, mirroring how
-downstreams consume the MCS-API suite:
+The package offers an explicit runner with per-run options and no shared clients:
 
 ```go
-package conformance_test
-
-import (
-	"testing"
-
-	"sigs.k8s.io/cluster-inventory-api/conformance"
-)
-
-func TestConformance(t *testing.T) {
-	conformance.TestConformance(t)
+func TestClusterInventory(t *testing.T) {
+    conformance.RunConformance(t, conformance.Options{
+        Namespace: "fleet-system",
+        ClusterManager: "open-cluster-management",
+        ExpectedClusters: 2,
+        SupportedFeatures: conformance.SupportedFeatureNames(),
+        ReportDirectory: os.Getenv("CONFORMANCE_REPORT_DIR"),
+        ReportFormats: []string{"html", "yaml"},
+    })
 }
 ```
 
-The suite registers its flags on the standard `flag` package command line, so
-the flags above are available to the importing test binary as well.
+Only claim capabilities that the implementation supplies. The supported names
+are `ClusterManagerLabel`, `InventoryMemberID`, `InventoryMemberUniqueness`,
+`ControlPlaneHealthy`, `Joined`, and `KubernetesVersion`. Uniqueness support also
+requires member ID support. Features outside this list cannot be claimed.
 
-The module requires the version of `sigs.k8s.io/cluster-inventory-api` that
-provides the `v1alpha2` API it tests: a pseudo-version of `main` until a
-release includes it, after which the requirement is bumped to that release.
-The `replace` directive in `go.mod` only takes effect inside this repository,
-so importers resolve that requirement through the module proxy.
+`Run(ctx, options)` returns a typed report and an error without invoking Go test
+failure handlers. `RunConformance(t, options)` also writes reports and fails the
+Go test when verification or writing fails. `RegisterFlags` can configure an
+independent `flag.FlagSet`. The compatibility `TestConformance(t)` entry point
+uses registered command-line flags; importing the package registers these flags
+on `flag.CommandLine`, but registers no Ginkgo specs.
 
-## Adding an API
+| Input | Meaning |
+| --- | --- |
+| `--kubeconfig`, `--context` | Standard Kubernetes loading rules apply when omitted |
+| `--namespace` | Required inventory namespace |
+| `--cluster-manager` | Optional `spec.clusterManager.name` selection; empty inspects all managers |
+| `--expected-clusters` | Zero requires at least one profile; positive requires exactly that number |
+| `--apis`, `--profiles` | API/profile selection; unknown names fail |
+| `--supported-features` | Comma-separated optional capabilities claimed by the implementation |
+| `--test-filter` | Development-only label expression using check IDs, API/profile names, Required, Optional, or features |
+| `--run-mode` | `development` (default) or `submission` |
+| `--timeout` | API observation deadline; defaults to 30 seconds |
+| `--report-dir` | Output directory; defaults to the working directory |
+| `--report-format` | `html`, `yaml`, or both; defaults to `html` |
+| `--report-output` | `single` (default) or `per-api` |
 
-Each API is identified by an `api` value in `conformance_suite.go`; its name
-is at once the Ginkgo label of the API's specs, the value `--apis` accepts,
-and the heading of its report section. To cover a new API:
+`--ginkgo.label-filter` aliases `--test-filter`; `--ginkgo.v` is accepted for
+compatibility. Go test `-v` controls verbosity. Connection permissions only need
+ClusterProfile listing and Kubernetes discovery; reading the namespace is an
+early configuration check, and a forbidden namespace read is tolerated.
 
-1. Add an `api` value for it and append it to the `apis` registry, which also
-   fixes the order of the report sections.
-2. Put its specs in `ginkgo.Describe` containers labeled with the API's name
-   (`ginkgo.Label(<api>.Name)`), written with `SpecifyWithSpecRef` so each
-   spec links to the KEP section it verifies, and labeled `Required` or
-   `Optional` (`RequiredLabel`/`OptionalLabel`).
+## Result contract
 
-The report generation checks that every spec carries the label of a known
-API, so a container that misses the label fails the run.
+| Individual outcome | Meaning |
+| --- | --- |
+| `passed` | The check verified its requirement, including satisfied conditional requirements |
+| `failed` | The observed output violates this requirement or recommendation |
+| `skipped` | The check was excluded or its prerequisite information is incomplete |
+| `unknown` | An environment or access error prevented verification |
+| `not-supported` | An optional capability is not provided |
 
-## Scope and roadmap
+Required checks always affect the profile result. Optional checks affect that
+result only when their feature is claimed. Unclaimed SHOULD deviations remain
+visible, and MAY or Informative capabilities can be omitted. Informative denotes
+an opt-in capability rather than a new normative requirement in the KEP.
 
-The KEP does not yet standardize a registration input, so the suite treats
-registration as an implementation-specific precondition and does not cover
-registration/deregistration lifecycle (for example, deletion recovery).
-Consumer-side conformance - inventory discovery and watching without merging
-namespaces, deduplication by `multicluster.x-k8s.io/inventory-member-id`, and
-authenticating to member clusters via `status.accessProviders` - as well as
-properties propagated from member-cluster `ClusterProperty` resources (which
-require member cluster access to verify), and the PlacementDecision API
-specs, are tracked as follow-ups in
-[issue #60](https://github.com/kubernetes-sigs/cluster-inventory-api/issues/60).
+Overall precedence is `failure`, `unknown`, `partial`, then `success`: a required
+or claimed feature violation produces failure; an undetermined gated check or a
+run error produces unknown; an unexecuted gated check produces partial; otherwise
+all gated checks must have passed. No selected checks produces unknown and a
+non-zero exit. A Go test exit code alone is not a conformance declaration.
+
+Submission runs prohibit check filters, require fixed source metadata, and verify
+the generated report. Development reports can record incomplete metadata and
+partial results; they are not accepted as submissions.
+
+## Reports
+
+The versioned YAML schema is `conformance.multicluster.x-k8s.io/v1alpha1`, kind
+`ConformanceReport`. This is a report format, not a CRD to install. HTML and YAML
+are rendered from the same report. Output names are `report.html`/`report.yaml`,
+or `report-clusterprofile.html`/`report-clusterprofile.yaml` for per-API output.
+
+| Metadata | Interpretation |
+| --- | --- |
+| Implementation organization, project, version, revision, dirty, mode, URL, contacts, reproduction | Identifies the implementation and an immutable test source or reproduction artifact |
+| Suite version, revision, dirty, catalog digest | Identifies the actual suite and requirement catalog |
+| Specification revision and URL | Fixed normative source |
+| API group version and revision | API types used by the suite; not an inferred installed CRD release |
+| Environment | Observed Kubernetes version, inventory, manager selection, expected count, and observed object UID/resourceVersion |
+| Profiles | Claimed capabilities, every catalog check, counts, and the computed result |
+
+Implementation flags are `--organization`, `--project`, `--version`, `--revision`,
+`--dirty`, `--mode`, `--url`, `--contact`, and `--reproduction`. Suite flags are
+`--suite-version`, `--suite-revision`, and `--suite-dirty`. Submission revisions
+must be full commit hashes, and source trees must be clean. A local replacement's
+revision must be supplied explicitly: the importing binary's commit identifies
+the importer, not the shared suite.
+
+The report CLI has two interfaces:
+
+- `report validate <report.yaml>...` verifies submission acceptance and recomputes results.
+- `report matrix --reports-dir <directory>` renders all accepted YAML reports as Markdown.
+
+Matrix rows retain implementation versions, modes, inventories, and run dates.
+They are grouped by the exact specification, suite, and tested API revisions.
+Partial results remain marked partial; unclaimed features remain unclaimed.
+Invalid input aborts generation before emitting a matrix.
+
+Accepted report storage and invariants are defined in [reports](reports/README.md).
+
+## Suite verification
+
+The existing envtest and kind targets use `hack/conformance-seed` to provide
+sample output. They test the observer and CRDs, not a cluster manager's conformance.
+The separate module's unit tests exercise outcome classification, read-only
+access, report integrity, and matrix generation. The existing CI job covers the
+module and the seeded observer execution.

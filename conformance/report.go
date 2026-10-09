@@ -17,416 +17,408 @@ limitations under the License.
 package conformance
 
 import (
-	_ "embed" // Needed for go:embed
+	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"sync/atomic"
+	"time"
 
-	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/ginkgo/v2/types"
-	"github.com/onsi/gomega"
-	"github.com/onsi/gomega/matchers"
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	// RequiredLabel marks specs every implementation must pass to be conformant.
-	RequiredLabel = "Required"
-	// OptionalLabel marks specs for optional parts of the specification.
-	OptionalLabel = "Optional"
+var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-	// SpecRefReportEntry is the report entry holding a spec's KEP reference.
-	SpecRefReportEntry = "spec-ref"
-	// NonConformantReportEntry is the report entry holding a spec's non-conformance message.
-	NonConformantReportEntry = "non-conformant"
-)
+func validURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
 
-var reportingLabels = []string{
-	RequiredLabel,
-	OptionalLabel,
+func validateMetadata(r ConformanceReport) error {
+	var errs []error
+	required := map[string]string{
+		"implementation.organization": r.Implementation.Organization, "implementation.project": r.Implementation.Project,
+		"implementation.version": r.Implementation.Version,
+		"implementation.mode":    r.Implementation.Mode,
+		"suite.version":          r.Suite.Version,
+	}
+	keys := make([]string, 0, len(required))
+	for key := range required {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if strings.TrimSpace(required[key]) == "" {
+			errs = append(errs, fmt.Errorf("%s is required", key))
+		}
+	}
+	for _, source := range []struct {
+		name  string
+		value Source
+	}{{"implementation", r.Implementation.Source}, {"suite", r.Suite.Source}} {
+		if !commitPattern.MatchString(source.value.Revision) {
+			errs = append(errs, fmt.Errorf("%s.revision must be a full source commit", source.name))
+		}
+		if source.value.Dirty {
+			errs = append(errs, fmt.Errorf("%s source must be clean for submission", source.name))
+		}
+	}
+	if !validURL(r.Implementation.URL) {
+		errs = append(errs, errors.New("implementation.url must be an absolute HTTP(S) URL"))
+	}
+	if !validURL(r.Implementation.Reproduction) {
+		errs = append(
+			errs,
+			errors.New(
+				"implementation.reproduction must identify a reproducible source artifact with an absolute HTTP(S) URL",
+			),
+		)
+	}
+	if len(r.Implementation.Contact) == 0 {
+		errs = append(errs, errors.New("implementation.contact is required"))
+	}
+	for _, contact := range r.Implementation.Contact {
+		if strings.TrimSpace(contact) == "" {
+			errs = append(errs, errors.New("implementation.contact entries must not be empty"))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateReport verifies the complete catalog and recomputes the result. A
+// submission is tied to this catalog; use the matching suite for other catalogs.
+func ValidateReport(r ConformanceReport, submission bool) error {
+	if r.APIVersion != ReportAPIVersion || r.Kind != ReportKind {
+		return fmt.Errorf("unsupported report schema %s/%s", r.APIVersion, r.Kind)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, r.Date); err != nil {
+		return fmt.Errorf("invalid report date: %w", err)
+	}
+	if r.RunMode != Development && r.RunMode != Submission {
+		return fmt.Errorf("invalid run mode %q", r.RunMode)
+	}
+	if r.Specification.Revision != SpecRevision || r.Specification.URL != specRef("") ||
+		r.Suite.CatalogDigest != CatalogDigest() {
+		return errors.New("unknown specification or check catalog; validate with the matching suite revision")
+	}
+	if r.API.GroupVersion != "multicluster.x-k8s.io/v1alpha2" || r.API.Revision != APIRevision {
+		return errors.New("unknown tested API revision")
+	}
+	if len(r.Profiles) != 1 {
+		return errors.New("report must contain the selected producer profile exactly once")
+	}
+	if err := validateOptions(defaults(Options{
+		Namespace:         r.Environment.InventoryNamespace,
+		ExpectedClusters:  r.Environment.ExpectedClusters,
+		SupportedFeatures: r.Profiles[0].SupportedFeatures,
+	})); err != nil {
+		return err
+	}
+	if err := validateProfile(r.Profiles[0]); err != nil {
+		return err
+	}
+	expected := r.Profiles[0].Result
+	if len(r.Errors) > 0 {
+		expected = combine(expected, Undetermined)
+	}
+	if r.Result != expected {
+		return errors.New("overall result does not match profile results and errors")
+	}
+
+	if submission {
+		return validateSubmission(r)
+	}
+	return nil
+}
+
+func validateSubmission(r ConformanceReport) error {
+
+	if r.RunMode != Submission {
+		return errors.New("development reports cannot be submitted")
+	}
+	if err := validateMetadata(r); err != nil {
+		return err
+	}
+	if r.Environment.KubernetesVersion == "" {
+		return errors.New("observed Kubernetes version is required for submission")
+	}
+	if r.Result != Success && r.Result != Partial {
+		return fmt.Errorf("%s reports cannot be accepted as conformance submissions", r.Result)
+	}
+	if len(r.Environment.ObservedProfiles) == 0 {
+		return errors.New("submission must identify observed profiles")
+	}
+	objects := map[string]bool{}
+	for _, object := range r.Environment.ObservedProfiles {
+		key := object.Namespace + "/" + object.Name
+		if object.Namespace != r.Environment.InventoryNamespace || object.Name == "" || object.UID == "" ||
+			object.ResourceVersion == "" ||
+			objects[key] {
+			return fmt.Errorf("invalid observed profile %q", key)
+		}
+		objects[key] = true
+	}
+
+	return nil
+}
+
+func validateProfile(p ProfileReport) error {
+	if p.Name != ProducerProfile || p.API != ClusterProfileAPI || p.Role != RoleProducer {
+		return errors.New("unknown profile, API, or role")
+	}
+	o := Options{Namespace: "selected-inventory", SupportedFeatures: p.SupportedFeatures, RunMode: Development}
+	if err := validateOptions(defaults(o)); err != nil {
+		return err
+	}
+	if len(p.Tests) != len(catalog) {
+		return fmt.Errorf("incomplete catalog: expected %d checks, got %d", len(catalog), len(p.Tests))
+	}
+	seen := map[string]bool{}
+	for _, t := range p.Tests {
+		if seen[t.ID] {
+			return fmt.Errorf("duplicate check %q", t.ID)
+		}
+		seen[t.ID] = true
+		idx := slices.IndexFunc(catalog, func(req Requirement) bool { return req.ID == t.ID })
+		if idx < 0 || t.Requirement != catalog[idx] {
+			return fmt.Errorf("unknown or modified requirement %q", t.ID)
+		}
+		switch t.Outcome {
+		case Passed, Failed, Skipped, Unknown, NotSupported:
+		default:
+			return fmt.Errorf("invalid outcome %q for %s", t.Outcome, t.ID)
+		}
+		if t.Outcome != Passed && strings.TrimSpace(t.Message) == "" {
+			return fmt.Errorf("%s requires a reason for %s", t.ID, t.Outcome)
+		}
+		if t.Outcome == NotSupported && t.Feature == "" {
+			return fmt.Errorf("required check %s cannot be not-supported", t.ID)
+		}
+	}
+	stats, result := summarize(p.Tests, p.SupportedFeatures)
+	if stats != p.Statistics || result != p.Result {
+		return errors.New("profile statistics or result does not match its checks")
+	}
+	return nil
+}
+
+func ReadReport(path string) (ConformanceReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ConformanceReport{}, err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	var report ConformanceReport
+	if err = decoder.Decode(&report); err != nil {
+		return report, fmt.Errorf("decode %s: %w", path, err)
+	}
+	var extra any
+	if err = decoder.Decode(&extra); err != io.EOF {
+		return report, fmt.Errorf("%s must contain exactly one report document", path)
+	}
+	return report, nil
 }
 
 //go:embed report_template.gohtml
 var reportHTML string
 
-var reportTemplate = template.Must(template.New("report").Parse(reportHTML))
+var htmlReport = template.Must(template.New("report").Parse(reportHTML))
 
-type testInfo struct {
-	Desc       string
-	Ref        string
-	Labels     []string
-	Passed     bool
-	Failed     bool
-	Skipped    bool
-	Conformant bool
-	Message    string
-}
-
-type testGrouping struct {
-	Name  string
-	Tests []testInfo
-}
-
-// apiReport holds the results of one API's specs, grouped by reporting label.
-type apiReport struct {
-	Name   string
-	Groups []testGrouping
-	Passed int
-	Total  int
-}
-
-type implementationInfo struct {
-	Organization string
-	Project      string
-	Version      string
-	URL          string
-}
-
-// reportData is the content of a conformance report, rendered as HTML or YAML.
-type reportData struct {
-	APIs           []apiReport
-	SuiteFailure   string
-	Passed         int
-	Total          int
-	Implementation implementationInfo
-}
-
-var (
-	errorRegEx *regexp.Regexp
-	// currentSpecNonConformanceMsg holds the last non-conformance message emitted by the current spec. Using
-	// Eventually with a function that takes a Gomega, different assertions could report non-conformance on
-	// successive retries, so we want to just report the last one. This also allows the last message to be cleared
-	// (via cancelNonConformanceReport()) if it eventually succeeded.
-	currentSpecNonConformanceMsg atomic.Value
-
-	// specRefRegistry maps test description substrings to the KEP spec reference.
-	specRefRegistry = map[string]string{}
-)
-
-// SpecifyWithSpecRef exists to be able to register a spec's KEP reference
-// alongside a Specify. This is important to be able to correctly attach the
-// spec ref even if a test is skipped.
-func SpecifyWithSpecRef(text string, specRef string, args ...interface{}) bool {
-	specRefRegistry[text] = specRef
-	return ginkgo.Specify(text, args...)
-}
-
-func lookupSpecRef(fullText string) string {
-	for desc, ref := range specRefRegistry {
-		if strings.Contains(fullText, desc) {
-			return ref
+// WriteReports atomically replaces each file after rendering is complete.
+func WriteReports(dir string, formats []string, perAPI bool, r ConformanceReport) error {
+	if len(formats) == 0 {
+		return errors.New("at least one report format is required")
+	}
+	for _, format := range formats {
+		if format != ReportFormatHTML && format != ReportFormatYAML {
+			return fmt.Errorf("unknown report format %q", format)
 		}
 	}
-
-	return ""
-}
-
-func init() {
-	dummyErr := errors.New("dummy")
-	errorRegEx = regexp.MustCompile(fmt.Sprintf(`\s*(.*)\s*(?:%s|%s|The function passed to)\s*.*\s*(.*)`,
-		regexp.QuoteMeta(firstLine((&matchers.HaveOccurredMatcher{}).NegatedFailureMessage(dummyErr))),
-		regexp.QuoteMeta(firstLine((&matchers.SucceedMatcher{}).FailureMessage(dummyErr)))))
-}
-
-var _ = ginkgo.ReportBeforeEach(func(specReport ginkgo.SpecReport) {
-	cancelNonConformanceReport()
-
-	if ref := lookupSpecRef(specReport.FullText()); ref != "" {
-		ginkgo.AddReportEntry(SpecRefReportEntry, ref)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
 	}
-})
-
-var _ = ginkgo.ReportAfterEach(func(specReport ginkgo.SpecReport) {
-	if specReport.LeafNodeType != types.NodeTypeIt || specReport.State == types.SpecStatePending ||
-		specReport.State == types.SpecStateSkipped {
-		return
-	}
-
-	msg, _ := currentSpecNonConformanceMsg.Swap("").(string)
-	if msg != "" {
-		ginkgo.AddReportEntry(NonConformantReportEntry, msg, types.ReportEntryVisibilityNever)
-	}
-})
-
-var _ = ginkgo.ReportAfterSuite("Cluster Inventory API conformance report", func(report ginkgo.Report) {
-	data, err := buildReport(report, apis, selectedAPIs)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred())
-
-	data.Implementation = implementationInfo{
-		Organization: organization,
-		Project:      project,
-		Version:      version,
-		URL:          url,
-	}
-
-	gomega.Expect(writeReports(".", reportFormats, reportPerAPI, data)).To(gomega.Succeed())
-})
-
-// buildReport groups the spec results by API (in the order of selected) and
-// by reporting label. Every spec must carry the label of one of the known
-// APIs and exactly one reporting label; specs of APIs that are not selected,
-// which Ginkgo filtered out, are left out of the report rather than listed as
-// skipped.
-func buildReport(report ginkgo.Report, known, selected []api) (reportData, error) {
-	data := reportData{}
-	groupsByAPI := map[string]map[string]*testGrouping{}
-
-	for _, specReport := range report.SpecReports {
-		if specReport.LeafNodeType == types.NodeTypeBeforeSuite && specReport.State == types.SpecStateFailed {
-			data.SuiteFailure = parseFailureMessage(specReport.FailureMessage())
-			continue
-		}
-
-		if specReport.LeafNodeType != types.NodeTypeIt || specReport.State == types.SpecStatePending {
-			continue
-		}
-
-		apiName, ok := apiOf(specReport, known)
-		if !ok {
-			return reportData{}, fmt.Errorf("spec %q does not carry an API label; every spec must be labeled "+
-				"with one of: %s", strings.TrimSpace(specReport.FullText()), strings.Join(apiNames(known), ", "))
-		}
-
-		if !slices.ContainsFunc(selected, func(a api) bool { return a.Name == apiName }) {
-			continue
-		}
-
-		label, err := reportingLabelOf(specReport)
-		if err != nil {
-			return reportData{}, err
-		}
-
-		if groupsByAPI[apiName] == nil {
-			groupsByAPI[apiName] = map[string]*testGrouping{}
-		}
-
-		if groupsByAPI[apiName][label] == nil {
-			groupsByAPI[apiName][label] = &testGrouping{
-				Name: label,
+	for _, format := range slices.Compact(slices.Clone(formats)) {
+		var data bytes.Buffer
+		if format == ReportFormatHTML {
+			if err := htmlReport.Execute(&data, r); err != nil {
+				return err
+			}
+		} else {
+			encoder := yaml.NewEncoder(&data)
+			encoder.SetIndent(2)
+			if err := encoder.Encode(r); err != nil {
+				return err
+			}
+			if err := encoder.Close(); err != nil {
+				return err
 			}
 		}
-
-		groupsByAPI[apiName][label].Tests = append(groupsByAPI[apiName][label].Tests,
-			specTestInfo(specReport, apiName, label))
-	}
-
-	for _, a := range selected {
-		apiRep := apiReport{Name: a.Name}
-
-		for _, l := range reportingLabels {
-			group := groupsByAPI[a.Name][l]
-			if group == nil {
-				continue
-			}
-
-			slices.SortFunc(group.Tests, func(a, b testInfo) int {
-				if cmp := slices.Compare(a.Labels, b.Labels); cmp != 0 {
-					return cmp
-				}
-				return strings.Compare(strings.TrimSpace(a.Desc), strings.TrimSpace(b.Desc))
-			})
-			apiRep.Groups = append(apiRep.Groups, *group)
-
-			for _, t := range group.Tests {
-				apiRep.Total++
-				if t.Passed {
-					apiRep.Passed++
-				}
-			}
+		base := "report"
+		if perAPI {
+			base += "-clusterprofile"
 		}
-
-		data.APIs = append(data.APIs, apiRep)
-		data.Passed += apiRep.Passed
-		data.Total += apiRep.Total
-	}
-
-	return data, nil
-}
-
-// specTestInfo summarizes a spec's result for the report, leaving out the API
-// and reporting labels it is filed under.
-func specTestInfo(specReport types.SpecReport, apiName, label string) testInfo {
-	info := testInfo{
-		Desc:       strings.TrimSpace(specReport.FullText()),
-		Conformant: true,
-	}
-
-	for _, currLabel := range specReport.Labels() {
-		if currLabel != label && currLabel != apiName {
-			info.Labels = append(info.Labels, currLabel)
-		}
-	}
-	slices.Sort(info.Labels)
-
-	for i := range specReport.ReportEntries {
-		switch specReport.ReportEntries[i].Name {
-		case SpecRefReportEntry:
-			info.Ref = specReport.ReportEntries[i].GetRawValue().(string)
-		case NonConformantReportEntry:
-			// An assertion reporting non-conformance may have failed initially but eventually succeeded
-			// after retries so only report non-conformance if the spec actually failed.
-			if specReport.State != types.SpecStatePassed {
-				info.Conformant = false
-				info.Message = specReport.ReportEntries[i].GetRawValue().(string)
-			}
-		}
-	}
-
-	if specReport.State == types.SpecStateSkipped {
-		info.Skipped = true
-		info.Message = parseFailureMessage(specReport.FailureMessage())
-	} else if specReport.State != types.SpecStatePassed && info.Conformant {
-		// If the spec failed (ie didn't pass) not due to non-conformance then we assume it encountered
-		// an unexpected error preventing conformance from being determined, and thus we'll report the
-		// conformance status as unknown.
-		info.Failed = true
-		info.Message = parseFailureMessage(specReport.FailureMessage())
-	}
-
-	info.Passed = !info.Failed && !info.Skipped && info.Conformant
-
-	if info.Message != "" {
-		info.Message = " - " + info.Message
-	}
-
-	return info
-}
-
-// reportingLabelOf returns the reporting label of a spec, which must carry
-// exactly one so that it is counted once in the report.
-func reportingLabelOf(specReport types.SpecReport) (string, error) {
-	found := make([]string, 0, len(reportingLabels))
-	for _, label := range reportingLabels {
-		if slices.Contains(specReport.Labels(), label) {
-			found = append(found, label)
-		}
-	}
-
-	if len(found) != 1 {
-		return "", fmt.Errorf("spec %q must carry exactly one of the reporting labels %s; got %v",
-			strings.TrimSpace(specReport.FullText()), strings.Join(reportingLabels, ", "), found)
-	}
-
-	return found[0], nil
-}
-
-// apiOf returns the name of the known API whose label the spec carries.
-func apiOf(specReport types.SpecReport, known []api) (string, bool) {
-	for _, a := range known {
-		if slices.Contains(specReport.Labels(), a.Name) {
-			return a.Name, true
-		}
-	}
-
-	return "", false
-}
-
-// writeReports writes the report into dir in every requested format, either
-// as a single report.<format> covering all APIs or, with perAPI, as one
-// report-<api>.<format> per API.
-func writeReports(dir string, formats []string, perAPI bool, data reportData) error {
-	if !perAPI {
-		return writeReport(dir, "report", formats, data)
-	}
-
-	for _, apiRep := range data.APIs {
-		apiData := reportData{
-			APIs:           []apiReport{apiRep},
-			SuiteFailure:   data.SuiteFailure,
-			Passed:         apiRep.Passed,
-			Total:          apiRep.Total,
-			Implementation: data.Implementation,
-		}
-
-		if err := writeReport(dir, "report-"+strings.ToLower(apiRep.Name), formats, apiData); err != nil {
+		if err := atomicWrite(filepath.Join(dir, base+"."+format), data.Bytes()); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
-func writeReport(dir, base string, formats []string, data reportData) error {
-	for _, format := range formats {
-		path := filepath.Join(dir, base+"."+format)
-		if err := writeReportFile(path, format, data); err != nil {
-			return fmt.Errorf("error writing the %s report %s: %w", format, path, err)
-		}
-	}
-
-	return nil
-}
-
-func writeReportFile(path, format string, data reportData) (err error) {
-	out, err := os.Create(path)
+func atomicWrite(path string, data []byte) (err error) {
+	file, err := os.CreateTemp(filepath.Dir(path), ".conformance-*")
 	if err != nil {
 		return err
 	}
-
+	temp := file.Name()
 	defer func() {
-		if closeErr := out.Close(); err == nil {
-			err = closeErr
+		removeErr := os.Remove(temp)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			err = errors.Join(err, removeErr)
 		}
 	}()
+	if _, err = file.Write(data); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err = file.Chmod(0644); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temp, path)
+}
 
-	switch format {
-	case reportFormatHTML:
-		return reportTemplate.Execute(out, data)
-	case reportFormatYAML:
-		encoder := yaml.NewEncoder(out)
-		if encodeErr := encoder.Encode(data); encodeErr != nil {
-			return encodeErr
+type matrixEntry struct {
+	report ConformanceReport
+	path   string
+}
+
+func escapeCell(s string) string {
+	return strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;").Replace(s)
+}
+
+// GenerateMatrix includes every accepted report, grouped by the exact tested
+// suite/specification/API tuple; partial results never appear as conformant.
+func GenerateMatrix(reportsDirectory string, w io.Writer) error {
+	entries := []matrixEntry{}
+	err := filepath.WalkDir(reportsDirectory, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-
-		return encoder.Close()
-	default:
-		return fmt.Errorf("unsupported report format %q", format)
-	}
-}
-
-func parseFailureMessage(s string) string {
-	// First see if the message represents an error formatted by a gomega matcher - we're interested in
-	// extracting the optional user description passed to the gomega assertion and the actual error
-	// string as these are the useful parts conducive for formatting in the report table.
-	matches := errorRegEx.FindStringSubmatch(s)
-	if len(matches) > 0 {
-		// First match at index 0 is the full text that was matched; index 1 will be the user description
-		// and index 2 the error string. We concatenate the latter two.
-		msg := strings.TrimSpace(matches[1])
-		if msg == "" {
-			msg = strings.TrimSpace(matches[2])
-		} else {
-			msg = strings.TrimSuffix(msg, ".") + ": " + strings.TrimSpace(matches[2])
+		if d.IsDir() {
+			return nil
 		}
-
-		return msg
+		ext := filepath.Ext(path)
+		if ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+		r, err := ReadReport(path)
+		if err != nil {
+			return err
+		}
+		if err = ValidateReport(r, true); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		relative, err := filepath.Rel(reportsDirectory, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, matrixEntry{report: r, path: filepath.ToSlash(relative)})
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-
-	// Fallback - just take the first line in the message.
-	return firstLine(s)
-}
-
-func firstLine(s string) string {
-	first, _, _ := strings.Cut(s, "\n")
-	return strings.TrimSpace(first)
-}
-
-// reportNonConformant is intended for use as an optional description in a gomega assertion. It returns
-// a function that is lazily evaluated by the assertion only if a failure occurs. We take advantage of
-// that to add a report entry indicating non-conformance.
-func reportNonConformant(msg string) func() string {
-	return func() string {
-		currentSpecNonConformanceMsg.Store(msg)
-		return msg
+	key := func(e matrixEntry) string {
+		r := e.report
+		return strings.Join(
+			[]string{
+				r.Specification.Revision,
+				r.Suite.Revision,
+				r.API.Revision,
+				r.Implementation.Organization,
+				r.Implementation.Project,
+				r.Implementation.Version,
+				r.Implementation.Mode,
+				r.Date,
+				e.path,
+			},
+			"\x00",
+		)
 	}
-}
-
-func cancelNonConformanceReport() {
-	currentSpecNonConformanceMsg.Store("")
+	slices.SortFunc(entries, func(a, b matrixEntry) int { return strings.Compare(key(a), key(b)) })
+	var out bytes.Buffer
+	out.WriteString(
+		"# Cluster Inventory API conformance\n\nEach row is a submitted run. " +
+			"Only success denotes conformance for the required checks and claimed features. " +
+			"Unclaimed recommendations remain visible in the linked report.\n\n",
+	)
+	if len(entries) == 0 {
+		out.WriteString("No accepted reports.\n")
+	}
+	group := ""
+	for _, e := range entries {
+		r := e.report
+		g := r.Specification.Revision + "/" + r.Suite.Revision + "/" + r.API.Revision
+		if g != group {
+			group = g
+			fmt.Fprintf(
+				&out,
+				"## %s\n\nSpecification: `%s` · Suite: `%s` · API types: `%s`\n\n",
+				r.API.GroupVersion,
+				r.Specification.Revision,
+				r.Suite.Revision,
+				r.API.Revision,
+			)
+			out.WriteString("| Implementation | Version / commit | Mode | Profile | Result | Inventory | Run date |")
+			for _, f := range features {
+				fmt.Fprintf(&out, " %s |", f)
+			}
+			out.WriteString(" Report |\n|---|---|---|---|---|---|---|")
+			for range features {
+				out.WriteString("---|")
+			}
+			out.WriteString("---|\n")
+		}
+		p := r.Profiles[0]
+		fmt.Fprintf(
+			&out,
+			"| %s / %s | %s / `%s` | %s | %s | %s | %s | %s |",
+			escapeCell(r.Implementation.Organization),
+			escapeCell(r.Implementation.Project),
+			escapeCell(r.Implementation.Version),
+			r.Implementation.Revision,
+			escapeCell(r.Implementation.Mode),
+			p.Name,
+			p.Result,
+			escapeCell(r.Environment.InventoryNamespace),
+			r.Date,
+		)
+		for _, f := range features {
+			value := "Unclaimed"
+			if slices.Contains(p.SupportedFeatures, f) {
+				value = "passed"
+				for _, t := range p.Tests {
+					if t.Feature == f && t.Outcome != Passed {
+						value = string(t.Outcome)
+						break
+					}
+				}
+			}
+			fmt.Fprintf(&out, " %s |", value)
+		}
+		u := url.URL{Path: e.path}
+		fmt.Fprintf(&out, " [YAML](%s) |\n", u.String())
+	}
+	_, err = w.Write(out.Bytes())
+	return err
 }
