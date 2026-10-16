@@ -18,12 +18,14 @@ package conformance
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	cp "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 )
 
@@ -31,15 +33,9 @@ type snapshot struct {
 	resources    *metav1.APIResourceList
 	apiError     error
 	profiles     []cp.ClusterProfile
+	managed      []cp.ClusterProfile
 	profileError error
-	manager      string
 	expected     int
-}
-
-func (s snapshot) managed() []cp.ClusterProfile {
-	return slices.DeleteFunc(slices.Clone(s.profiles), func(p cp.ClusterProfile) bool {
-		return s.manager != "" && p.Spec.ClusterManager.Name != s.manager
-	})
 }
 
 func outcome(req Requirement, state Outcome, message string) TestResult {
@@ -58,7 +54,7 @@ func checkAPI(req Requirement, s snapshot) TestResult {
 	}
 	idx := slices.IndexFunc(
 		s.resources.APIResources,
-		func(a metav1.APIResource) bool { return a.Name == "clusterprofiles" },
+		func(a metav1.APIResource) bool { return a.Name == cp.ClusterProfileSchemeGroupVersionResource.Resource },
 	)
 	if idx < 0 {
 		return outcome(req, Failed, "clusterprofiles is not served")
@@ -79,7 +75,7 @@ func check(req Requirement, s snapshot) TestResult {
 	if s.profileError != nil {
 		return outcome(req, Unknown, "Cannot list the inventory: "+s.profileError.Error())
 	}
-	profiles := s.managed()
+	profiles := s.managed
 	if req.Scope == ScopeInventory {
 		profiles = s.profiles
 	}
@@ -109,7 +105,7 @@ func checkUniqueness(req Requirement, profiles []cp.ClusterProfile) TestResult {
 	missing := []string{}
 	ids := map[string][]string{}
 	for _, p := range profiles {
-		name := p.Namespace + "/" + p.Name
+		name := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}.String()
 		id := p.Labels[cp.LabelInventoryMemberIDKey]
 		if id == "" {
 			missing = append(missing, name)
@@ -117,12 +113,7 @@ func checkUniqueness(req Requirement, profiles []cp.ClusterProfile) TestResult {
 			ids[id] = append(ids[id], name)
 		}
 	}
-	keys := make([]string, 0, len(ids))
-	for id := range ids {
-		keys = append(keys, id)
-	}
-	slices.Sort(keys)
-	for _, id := range keys {
+	for _, id := range slices.Sorted(maps.Keys(ids)) {
 		if len(ids[id]) > 1 {
 			slices.Sort(ids[id])
 			return outcome(req, Failed, fmt.Sprintf("Member ID %q is duplicated: %s", id, strings.Join(ids[id], ", ")))
@@ -142,7 +133,7 @@ func checkUniqueness(req Requirement, profiles []cp.ClusterProfile) TestResult {
 func checkFields(req Requirement, profiles []cp.ClusterProfile) TestResult {
 	missing := []string{}
 	for _, p := range profiles {
-		name := p.Namespace + "/" + p.Name
+		name := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}.String()
 		manager, hasManager := p.Labels[cp.LabelClusterManagerKey]
 		id, hasID := p.Labels[cp.LabelInventoryMemberIDKey]
 		switch req.ID {

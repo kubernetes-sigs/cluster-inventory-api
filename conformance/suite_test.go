@@ -49,13 +49,14 @@ import (
 )
 
 const (
-	testManager         = "manager"
-	testInventory       = "inventory"
-	testOther           = "other"
-	testVersion         = "v1.35.0"
-	testVersionPath     = "/version"
-	testProfileResource = "clusterprofiles"
+	testManager     = "manager"
+	testInventory   = "inventory"
+	testOther       = "other"
+	testVersion     = "v1.35.0"
+	testVersionPath = "/version"
 )
+
+var testProfileResource = cp.ClusterProfileSchemeGroupVersionResource.Resource
 
 func sampleProfile(name, namespace, id string) *cp.ClusterProfile {
 	return &cp.ClusterProfile{
@@ -73,8 +74,8 @@ func sampleProfile(name, namespace, id string) *cp.ClusterProfile {
 		Status: cp.ClusterProfileStatus{
 			Version: cp.ClusterVersion{Kubernetes: testVersion},
 			Conditions: []metav1.Condition{
-				{Type: "ControlPlaneHealthy", Status: metav1.ConditionTrue},
-				{Type: "Joined", Status: metav1.ConditionTrue},
+				{Type: cp.ClusterConditionControlPlaneHealthy, Status: metav1.ConditionTrue},
+				{Type: Joined, Status: metav1.ConditionTrue},
 			},
 		},
 	}
@@ -150,52 +151,51 @@ func TestUnitRunObservesWithoutWriting(t *testing.T) {
 func TestUnitReadOnlyFailuresAndScope(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		change func(*Options, *kubefake.Clientset, *cpfake.Clientset, *cp.ClusterProfile)
+		change func(*Options, *kubefake.Clientset, *cpfake.Clientset)
 		id     string
 		out    Outcome
 		result Result
 	}{
 		{
 			"missing API",
-			func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) { k.Resources = nil },
+			func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) { k.Resources = nil },
 			CheckAPIAvailability,
 			Failed,
 			Failure,
 		},
-		{"cluster scoped API", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"cluster scoped API", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			k.Resources[0].APIResources[0].Namespaced = false
 		}, CheckNamespaced, Failed, Failure},
-		{"forbidden inventory", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"forbidden inventory", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			c.PrependReactor("list", testProfileResource, func(clienttesting.Action) (bool, runtime.Object, error) {
-				resource := schema.GroupResource{Group: cp.GroupVersion.Group, Resource: testProfileResource}
+				resource := cp.ClusterProfileSchemeGroupVersionResource.GroupResource()
 				return true, nil, apierrors.NewForbidden(resource, testInventory, errors.New("denied"))
 			})
 		}, CheckRepresentation, Unknown, Undetermined},
-		{"wrong manager", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"wrong manager", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.ClusterManager = testOther
 		}, CheckRepresentation, Failed, Failure},
-		{"count mismatch", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"count mismatch", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.ExpectedClusters = 2
 		}, CheckRepresentation, Failed, Failure},
-		{"unknown API selection", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"unknown API selection", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.APIs = []string{"typo"}
 		}, CheckAPIAvailability, Unknown, Undetermined},
-		{"no tests", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"no tests", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.RunMode = Development
 			o.TestFilter = "NoSuchLabel"
 		}, CheckAPIAvailability, Skipped, Undetermined},
-		{"skip required", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"skip required", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.RunMode = Development
 			o.TestFilter = OptionalLabel
 		}, CheckAPIAvailability, Skipped, Partial},
-		{"submission filter", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset, p *cp.ClusterProfile) {
+		{"submission filter", func(o *Options, k *kubefake.Clientset, c *cpfake.Clientset) {
 			o.TestFilter = RequiredLabel
 		}, CheckAPIAvailability, Unknown, Undetermined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := sampleProfile("a", testInventory, "id-a")
-			o, k, c := sampleOptions(p)
-			tc.change(&o, k, c, p)
+			o, k, c := sampleOptions(sampleProfile("a", testInventory, "id-a"))
+			tc.change(&o, k, c)
 			r, err := Run(context.Background(), o)
 			if err == nil || r.Result != tc.result || findResult(t, r, tc.id).Outcome != tc.out {
 				t.Fatalf("result=%s err=%v check=%+v", r.Result, err, findResult(t, r, tc.id))
@@ -298,17 +298,25 @@ func TestUnitConditionalAndClaimedRequirements(t *testing.T) {
 func TestUnitInventoryWideUniqueness(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		profiles []*cp.ClusterProfile
+		profiles []runtime.Object
 		want     Outcome
 	}{
 		{
 			"duplicates across managers",
-			[]*cp.ClusterProfile{sampleProfile("a", testInventory, "same"), sampleProfile("b", testInventory, "same")},
+			[]runtime.Object{
+				sampleProfile("a", testInventory, "same"),
+				func() runtime.Object {
+					p := sampleProfile("b", testInventory, "same")
+					p.Spec.ClusterManager.Name = testOther
+					p.Labels[cp.LabelClusterManagerKey] = testOther
+					return p
+				}(),
+			},
 			Failed,
 		},
 		{
 			"duplicate despite missing ID",
-			[]*cp.ClusterProfile{
+			[]runtime.Object{
 				sampleProfile("a", testInventory, "same"),
 				sampleProfile("b", testInventory, "same"),
 				sampleProfile("c", testInventory, ""),
@@ -317,25 +325,17 @@ func TestUnitInventoryWideUniqueness(t *testing.T) {
 		},
 		{
 			"missing ID",
-			[]*cp.ClusterProfile{sampleProfile("a", testInventory, "id-a"), sampleProfile("b", testInventory, "")},
+			[]runtime.Object{sampleProfile("a", testInventory, "id-a"), sampleProfile("b", testInventory, "")},
 			Skipped,
 		},
 		{
 			"other inventory",
-			[]*cp.ClusterProfile{sampleProfile("a", testInventory, "same"), sampleProfile("b", testOther, "same")},
+			[]runtime.Object{sampleProfile("a", testInventory, "same"), sampleProfile("b", testOther, "same")},
 			Passed,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			objects := []runtime.Object{}
-			for i, p := range tc.profiles {
-				if i == 1 && tc.name == "duplicates across managers" {
-					p.Spec.ClusterManager.Name = testOther
-					p.Labels[cp.LabelClusterManagerKey] = testOther
-				}
-				objects = append(objects, p)
-			}
-			o, _, _ := sampleOptions(objects...)
+			o, _, _ := sampleOptions(tc.profiles...)
 			o.RunMode = Development
 			o.SupportedFeatures = nil
 			r, _ := Run(context.Background(), o)

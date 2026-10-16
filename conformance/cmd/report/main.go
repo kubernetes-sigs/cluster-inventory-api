@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -26,12 +27,12 @@ import (
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: report validate <report.yaml>... | report matrix --reports-dir <directory>")
+		return errors.New("usage: report validate <report.yaml>... | report matrix --reports-dir <directory>")
 	}
 	switch args[0] {
 	case "validate":
 		if len(args) == 1 {
-			return fmt.Errorf("validate requires at least one report")
+			return errors.New("validate requires at least one report")
 		}
 		for _, path := range args[1:] {
 			r, err := conformance.ReadReport(path)
@@ -53,7 +54,7 @@ func run(args []string) error {
 			return err
 		}
 		if *dir == "" || fs.NArg() != 0 {
-			return fmt.Errorf("matrix requires --reports-dir and no positional arguments")
+			return errors.New("matrix requires --reports-dir and no positional arguments")
 		}
 		return conformance.GenerateMatrix(*dir, os.Stdout)
 	default:

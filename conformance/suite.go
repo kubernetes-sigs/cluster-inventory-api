@@ -39,6 +39,8 @@ import (
 	cpclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 )
 
+const excludedByFilter = "Excluded by test filter"
+
 func defaults(o Options) Options {
 	if o.RunMode == "" {
 		o.RunMode = Development
@@ -61,18 +63,32 @@ func defaults(o Options) Options {
 	return o
 }
 
-func validateOptions(o Options) error {
-	if o.Namespace == "" {
+func validateInventory(namespace string, expectedClusters int) error {
+	if namespace == "" {
 		return errors.New("namespace is required: select an inventory managed by the implementation")
 	}
-	if o.ExpectedClusters < 0 {
+	if expectedClusters < 0 {
 		return errors.New("expected-clusters must not be negative")
+	}
+	return nil
+}
+
+func validateRunMode(mode string) error {
+	if mode != Development && mode != Submission {
+		return fmt.Errorf("unknown run-mode %q", mode)
+	}
+	return nil
+}
+
+func validateOptions(o Options) error {
+	if err := validateInventory(o.Namespace, o.ExpectedClusters); err != nil {
+		return err
 	}
 	if o.Timeout <= 0 {
 		return errors.New("timeout must be positive")
 	}
-	if o.RunMode != Development && o.RunMode != Submission {
-		return fmt.Errorf("unknown run-mode %q", o.RunMode)
+	if err := validateRunMode(o.RunMode); err != nil {
+		return err
 	}
 	for _, api := range o.APIs {
 		if api != ClusterProfileAPI {
@@ -84,8 +100,21 @@ func validateOptions(o Options) error {
 			return fmt.Errorf("unknown profile %q", profile)
 		}
 	}
+	if err := validateFeatures(o.SupportedFeatures); err != nil {
+		return err
+	}
+	if err := validateFormats(o.ReportFormats); err != nil {
+		return err
+	}
+	if o.RunMode == Submission && o.TestFilter != "" {
+		return errors.New("submission runs cannot filter checks; select APIs, profiles, and supported features instead")
+	}
+	return nil
+}
+
+func validateFeatures(names []string) error {
 	seen := map[string]bool{}
-	for _, f := range o.SupportedFeatures {
+	for _, f := range names {
 		if !slices.Contains(features, f) {
 			return fmt.Errorf("unknown supported feature %q", f)
 		}
@@ -96,14 +125,6 @@ func validateOptions(o Options) error {
 	}
 	if seen[InventoryMemberUniqueness] && !seen[InventoryMemberID] {
 		return errors.New("InventoryMemberUniqueness requires InventoryMemberID support")
-	}
-	for _, format := range o.ReportFormats {
-		if format != ReportFormatHTML && format != ReportFormatYAML {
-			return fmt.Errorf("unknown report format %q", format)
-		}
-	}
-	if o.RunMode == Submission && o.TestFilter != "" {
-		return errors.New("submission runs cannot filter checks; select APIs, profiles, and supported features instead")
 	}
 	return nil
 }
@@ -223,16 +244,19 @@ func serverResources(ctx context.Context, d discovery.DiscoveryInterface) (*meta
 func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 	o := defaults(options)
 	report := newReport(o)
-	failSetup := func(err error) (ConformanceReport, error) {
+	abort := func(err error) (ConformanceReport, error) {
 		report.Errors = append(report.Errors, err.Error())
-		for _, req := range catalog {
-			report.Profiles[0].Tests = append(
-				report.Profiles[0].Tests,
-				TestResult{Requirement: req, Outcome: Unknown, Message: err.Error()},
-			)
-		}
 		finish(&report)
 		return report, err
+	}
+	fillAll := func(state Outcome, message string) {
+		for _, req := range catalog {
+			report.Profiles[0].Tests = append(report.Profiles[0].Tests, outcome(req, state, message))
+		}
+	}
+	failSetup := func(err error) (ConformanceReport, error) {
+		fillAll(Unknown, err.Error())
+		return abort(err)
 	}
 	if err := validateOptions(o); err != nil {
 		return failSetup(err)
@@ -242,28 +266,15 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		return failSetup(fmt.Errorf("invalid test filter: %w", err))
 	}
 	selected := func(req Requirement) bool {
-		level := OptionalLabel
-		if req.Feature == "" {
-			level = RequiredLabel
+		level := RequiredLabel
+		if req.Optional() {
+			level = OptionalLabel
 		}
 		return filter([]string{req.ID, level, ClusterProfileAPI, ProducerProfile, req.Feature})
 	}
-	selectedCount := 0
-	for _, req := range catalog {
-		if selected(req) {
-			selectedCount++
-		}
-	}
-	if selectedCount == 0 {
-		for _, req := range catalog {
-			report.Profiles[0].Tests = append(
-				report.Profiles[0].Tests,
-				TestResult{Requirement: req, Outcome: Skipped, Message: "Excluded by test filter"},
-			)
-		}
-		report.Errors = append(report.Errors, "no checks selected")
-		finish(&report)
-		return report, errors.New("no checks selected")
+	if !slices.ContainsFunc(catalog, selected) {
+		fillAll(Skipped, excludedByFilter)
+		return abort(errors.New("no checks selected"))
 	}
 	if o.RunMode == Submission {
 		if err := validateMetadata(report); err != nil {
@@ -277,28 +288,31 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		return failSetup(err)
 	}
 	d := o.Kubernetes.Discovery()
-	if version, e := serverVersion(ctx, d); e == nil && version != nil {
-		report.Environment.KubernetesVersion = version.GitVersion
+	if info, verr := serverVersion(ctx, d); verr == nil && info != nil {
+		report.Environment.KubernetesVersion = info.GitVersion
 	}
-	if err := ctx.Err(); err != nil {
+	if err = ctx.Err(); err != nil {
 		return failSetup(err)
 	}
-	if _, e := o.Kubernetes.CoreV1().Namespaces().Get(ctx, o.Namespace, metav1.GetOptions{}); e != nil &&
-		!apierrors.IsForbidden(e) {
-		return failSetup(fmt.Errorf("read inventory namespace %q: %w", o.Namespace, e))
+	if _, nerr := o.Kubernetes.CoreV1().Namespaces().Get(ctx, o.Namespace, metav1.GetOptions{}); nerr != nil &&
+		!apierrors.IsForbidden(nerr) {
+		return failSetup(fmt.Errorf("read inventory namespace %q: %w", o.Namespace, nerr))
 	}
-	s := snapshot{manager: o.ClusterManager, expected: o.ExpectedClusters}
+	s := snapshot{expected: o.ExpectedClusters}
 	s.resources, s.apiError = serverResources(ctx, d)
 	if s.apiError != nil {
 		s.profileError = s.apiError
 	} else {
-		list, e := o.ClusterInventory.ApisV1alpha2().ClusterProfiles(o.Namespace).List(ctx, metav1.ListOptions{})
-		s.profileError = e
-		if e == nil {
+		var list *cp.ClusterProfileList
+		list, s.profileError = o.ClusterInventory.ApisV1alpha2().ClusterProfiles(o.Namespace).List(ctx, metav1.ListOptions{})
+		if s.profileError == nil {
 			s.profiles = list.Items
 		}
 	}
 	slices.SortFunc(s.profiles, func(a, b cp.ClusterProfile) int { return strings.Compare(a.Name, b.Name) })
+	s.managed = slices.DeleteFunc(slices.Clone(s.profiles), func(p cp.ClusterProfile) bool {
+		return o.ClusterManager != "" && p.Spec.ClusterManager.Name != o.ClusterManager
+	})
 	for _, p := range s.profiles {
 		report.Environment.ObservedProfiles = append(
 			report.Environment.ObservedProfiles,
@@ -311,7 +325,7 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		)
 	}
 	for _, req := range catalog {
-		result := TestResult{Requirement: req, Outcome: Skipped, Message: "Excluded by test filter"}
+		result := outcome(req, Skipped, excludedByFilter)
 		if selected(req) {
 			result = check(req, s)
 		}
@@ -320,9 +334,7 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 	finish(&report)
 	if o.RunMode == Submission {
 		if err := ValidateReport(report, true); err != nil {
-			report.Errors = append(report.Errors, err.Error())
-			finish(&report)
-			return report, err
+			return abort(err)
 		}
 	}
 	if report.Result != Success {
@@ -332,18 +344,11 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 }
 
 func finish(r *ConformanceReport) {
-	r.Result = Success
-	if len(r.Profiles) == 0 {
-		r.Result = Undetermined
-	}
 	for i := range r.Profiles {
 		p := &r.Profiles[i]
 		p.Statistics, p.Result = summarize(p.Tests, p.SupportedFeatures)
-		r.Result = combine(r.Result, p.Result)
 	}
-	if len(r.Errors) > 0 {
-		r.Result = combine(r.Result, Undetermined)
-	}
+	r.Result = overall(r)
 }
 
 // RunConformance integrates the observer and report writer with a downstream Go test.

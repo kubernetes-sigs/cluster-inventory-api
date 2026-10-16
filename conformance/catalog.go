@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"slices"
+	"sync"
 )
 
 const (
@@ -32,14 +33,16 @@ const (
 	KubernetesVersion         = "KubernetesVersion"
 )
 
-var features = []string{
-	ClusterManagerLabel,
-	InventoryMemberID,
-	InventoryMemberUniqueness,
-	ControlPlaneHealthy,
-	Joined,
-	KubernetesVersion,
-}
+// features lists each optional capability once, in catalog order.
+var features = func() []string {
+	out := []string{}
+	for _, req := range catalog {
+		if req.Optional() {
+			out = append(out, req.Feature)
+		}
+	}
+	return out
+}()
 
 func SupportedFeatureNames() []string { return slices.Clone(features) }
 
@@ -94,7 +97,7 @@ var catalog = []Requirement{
 	{
 		ID:          CheckManagerPresence,
 		Description: "Cluster manager labels are provided",
-		Level:       "MAY",
+		Level:       LevelMay,
 		Feature:     ClusterManagerLabel,
 		Scope:       ScopeManager,
 		Ref:         specRef("cluster-manager"),
@@ -118,7 +121,7 @@ var catalog = []Requirement{
 	{
 		ID:          CheckHealthyPresence,
 		Description: "ControlPlaneHealthy is reported",
-		Level:       "Informative",
+		Level:       LevelInformative,
 		Feature:     ControlPlaneHealthy,
 		Scope:       ScopeManager,
 		Ref:         specRef("conditions"),
@@ -134,21 +137,23 @@ var catalog = []Requirement{
 	{
 		ID:          CheckVersionPresence,
 		Description: "Kubernetes version is reported",
-		Level:       "Informative",
+		Level:       LevelInformative,
 		Feature:     KubernetesVersion,
 		Scope:       ScopeManager,
 		Ref:         specRef("version"),
 	},
 }
 
-func CatalogDigest() string {
+var catalogDigest = sync.OnceValue(func() string {
 	data, _ := json.Marshal(catalog)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
-}
+})
+
+func CatalogDigest() string { return catalogDigest() }
 
 func gate(t TestResult, supported []string) bool {
-	return t.Feature == "" || slices.Contains(supported, t.Feature)
+	return !t.Optional() || slices.Contains(supported, t.Feature)
 }
 
 func summarize(tests []TestResult, supported []string) (Statistics, Result) {
@@ -187,10 +192,26 @@ func summarize(tests []TestResult, supported []string) (Statistics, Result) {
 	return stats, result
 }
 
+var resultRank = map[Result]int{Success: 0, Partial: 1, Undetermined: 2, Failure: 3}
+
 func combine(a, b Result) Result {
-	rank := map[Result]int{Success: 0, Partial: 1, Undetermined: 2, Failure: 3}
-	if rank[b] > rank[a] {
+	if resultRank[b] > resultRank[a] {
 		return b
 	}
 	return a
+}
+
+// overall rolls profile results and run errors up into the report result.
+func overall(r *ConformanceReport) Result {
+	result := Success
+	if len(r.Profiles) == 0 {
+		result = Undetermined
+	}
+	for _, p := range r.Profiles {
+		result = combine(result, p.Result)
+	}
+	if len(r.Errors) > 0 {
+		result = combine(result, Undetermined)
+	}
+	return result
 }

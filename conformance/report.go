@@ -18,6 +18,7 @@ package conformance
 
 import (
 	"bytes"
+	"cmp"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -33,6 +34,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/types"
+	cp "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 )
 
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -44,20 +47,15 @@ func validURL(s string) bool {
 
 func validateMetadata(r ConformanceReport) error {
 	var errs []error
-	required := map[string]string{
-		"implementation.organization": r.Implementation.Organization, "implementation.project": r.Implementation.Project,
-		"implementation.version": r.Implementation.Version,
-		"implementation.mode":    r.Implementation.Mode,
-		"suite.version":          r.Suite.Version,
-	}
-	keys := make([]string, 0, len(required))
-	for key := range required {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		if strings.TrimSpace(required[key]) == "" {
-			errs = append(errs, fmt.Errorf("%s is required", key))
+	for _, field := range []struct{ name, value string }{
+		{"implementation.mode", r.Implementation.Mode},
+		{"implementation.organization", r.Implementation.Organization},
+		{"implementation.project", r.Implementation.Project},
+		{"implementation.version", r.Implementation.Version},
+		{"suite.version", r.Suite.Version},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			errs = append(errs, fmt.Errorf("%s is required", field.name))
 		}
 	}
 	for _, source := range []struct {
@@ -102,37 +100,28 @@ func ValidateReport(r ConformanceReport, submission bool) error {
 	if _, err := time.Parse(time.RFC3339Nano, r.Date); err != nil {
 		return fmt.Errorf("invalid report date: %w", err)
 	}
-	if r.RunMode != Development && r.RunMode != Submission {
-		return fmt.Errorf("invalid run mode %q", r.RunMode)
+	if err := validateRunMode(r.RunMode); err != nil {
+		return err
 	}
 	if r.Specification.Revision != SpecRevision || r.Specification.URL != specRef("") ||
 		r.Suite.CatalogDigest != CatalogDigest() {
 		return errors.New("unknown specification or check catalog; validate with the matching suite revision")
 	}
-	if r.API.GroupVersion != "multicluster.x-k8s.io/v1alpha2" || r.API.Revision != APIRevision {
+	if r.API.GroupVersion != cp.GroupVersion.String() || r.API.Revision != APIRevision {
 		return errors.New("unknown tested API revision")
 	}
 	if len(r.Profiles) != 1 {
 		return errors.New("report must contain the selected producer profile exactly once")
 	}
-	if err := validateOptions(defaults(Options{
-		Namespace:         r.Environment.InventoryNamespace,
-		ExpectedClusters:  r.Environment.ExpectedClusters,
-		SupportedFeatures: r.Profiles[0].SupportedFeatures,
-	})); err != nil {
+	if err := validateInventory(r.Environment.InventoryNamespace, r.Environment.ExpectedClusters); err != nil {
 		return err
 	}
 	if err := validateProfile(r.Profiles[0]); err != nil {
 		return err
 	}
-	expected := r.Profiles[0].Result
-	if len(r.Errors) > 0 {
-		expected = combine(expected, Undetermined)
-	}
-	if r.Result != expected {
+	if r.Result != overall(&r) {
 		return errors.New("overall result does not match profile results and errors")
 	}
-
 	if submission {
 		return validateSubmission(r)
 	}
@@ -140,7 +129,6 @@ func ValidateReport(r ConformanceReport, submission bool) error {
 }
 
 func validateSubmission(r ConformanceReport) error {
-
 	if r.RunMode != Submission {
 		return errors.New("development reports cannot be submitted")
 	}
@@ -156,9 +144,9 @@ func validateSubmission(r ConformanceReport) error {
 	if len(r.Environment.ObservedProfiles) == 0 {
 		return errors.New("submission must identify observed profiles")
 	}
-	objects := map[string]bool{}
+	objects := map[types.NamespacedName]bool{}
 	for _, object := range r.Environment.ObservedProfiles {
-		key := object.Namespace + "/" + object.Name
+		key := types.NamespacedName{Namespace: object.Namespace, Name: object.Name}
 		if object.Namespace != r.Environment.InventoryNamespace || object.Name == "" || object.UID == "" ||
 			object.ResourceVersion == "" ||
 			objects[key] {
@@ -166,7 +154,6 @@ func validateSubmission(r ConformanceReport) error {
 		}
 		objects[key] = true
 	}
-
 	return nil
 }
 
@@ -174,8 +161,7 @@ func validateProfile(p ProfileReport) error {
 	if p.Name != ProducerProfile || p.API != ClusterProfileAPI || p.Role != RoleProducer {
 		return errors.New("unknown profile, API, or role")
 	}
-	o := Options{Namespace: "selected-inventory", SupportedFeatures: p.SupportedFeatures, RunMode: Development}
-	if err := validateOptions(defaults(o)); err != nil {
+	if err := validateFeatures(p.SupportedFeatures); err != nil {
 		return err
 	}
 	if len(p.Tests) != len(catalog) {
@@ -199,7 +185,7 @@ func validateProfile(p ProfileReport) error {
 		if t.Outcome != Passed && strings.TrimSpace(t.Message) == "" {
 			return fmt.Errorf("%s requires a reason for %s", t.ID, t.Outcome)
 		}
-		if t.Outcome == NotSupported && t.Feature == "" {
+		if t.Outcome == NotSupported && !t.Optional() {
 			return fmt.Errorf("required check %s cannot be not-supported", t.ID)
 		}
 	}
@@ -238,13 +224,15 @@ func WriteReports(dir string, formats []string, perAPI bool, r ConformanceReport
 	if len(formats) == 0 {
 		return errors.New("at least one report format is required")
 	}
-	for _, format := range formats {
-		if format != ReportFormatHTML && format != ReportFormatYAML {
-			return fmt.Errorf("unknown report format %q", format)
-		}
+	if err := validateFormats(formats); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
+	}
+	base := "report"
+	if perAPI {
+		base += "-clusterprofile"
 	}
 	for _, format := range slices.Compact(slices.Clone(formats)) {
 		var data bytes.Buffer
@@ -262,12 +250,17 @@ func WriteReports(dir string, formats []string, perAPI bool, r ConformanceReport
 				return err
 			}
 		}
-		base := "report"
-		if perAPI {
-			base += "-clusterprofile"
-		}
 		if err := atomicWrite(filepath.Join(dir, base+"."+format), data.Bytes()); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateFormats(formats []string) error {
+	for _, format := range formats {
+		if format != ReportFormatHTML && format != ReportFormatYAML {
+			return fmt.Errorf("unknown report format %q", format)
 		}
 	}
 	return nil
@@ -285,13 +278,11 @@ func atomicWrite(path string, data []byte) (err error) {
 			err = errors.Join(err, removeErr)
 		}
 	}()
-	if _, err = file.Write(data); err != nil {
-		return errors.Join(err, file.Close())
+	_, err = file.Write(data)
+	if err = errors.Join(err, file.Close()); err != nil {
+		return err
 	}
-	if err = file.Chmod(0644); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if err = file.Close(); err != nil {
+	if err = os.Chmod(temp, 0644); err != nil {
 		return err
 	}
 	return os.Rename(temp, path)
@@ -302,8 +293,22 @@ type matrixEntry struct {
 	path   string
 }
 
-func escapeCell(s string) string {
-	return strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;").Replace(s)
+// matrixGroup is the exact specification, suite, and API tuple a report was tested against.
+type matrixGroup struct{ spec, suite, api string }
+
+var escapeCell = strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;").Replace
+
+// featureStatus is "Unclaimed", "passed", or the first non-passing outcome of a claimed feature.
+func featureStatus(p ProfileReport, feature string) string {
+	if !slices.Contains(p.SupportedFeatures, feature) {
+		return "Unclaimed"
+	}
+	for _, t := range p.Tests {
+		if t.Feature == feature && t.Outcome != Passed {
+			return string(t.Outcome)
+		}
+	}
+	return string(Passed)
 }
 
 // GenerateMatrix includes every accepted report, grouped by the exact tested
@@ -338,24 +343,25 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	key := func(e matrixEntry) string {
-		r := e.report
-		return strings.Join(
-			[]string{
-				r.Specification.Revision,
-				r.Suite.Revision,
-				r.API.Revision,
-				r.Implementation.Organization,
-				r.Implementation.Project,
-				r.Implementation.Version,
-				r.Implementation.Mode,
-				r.Date,
-				e.path,
-			},
-			"\x00",
+	slices.SortFunc(entries, func(a, b matrixEntry) int {
+		x, y := a.report, b.report
+		return cmp.Or(
+			cmp.Compare(x.Specification.Revision, y.Specification.Revision),
+			cmp.Compare(x.Suite.Revision, y.Suite.Revision),
+			cmp.Compare(x.API.Revision, y.API.Revision),
+			cmp.Compare(x.Implementation.Organization, y.Implementation.Organization),
+			cmp.Compare(x.Implementation.Project, y.Implementation.Project),
+			cmp.Compare(x.Implementation.Version, y.Implementation.Version),
+			cmp.Compare(x.Implementation.Mode, y.Implementation.Mode),
+			cmp.Compare(x.Date, y.Date),
+			cmp.Compare(a.path, b.path),
 		)
-	}
-	slices.SortFunc(entries, func(a, b matrixEntry) int { return strings.Compare(key(a), key(b)) })
+	})
+	columns := slices.Concat(
+		[]string{"Implementation", "Version / commit", "Mode", "Profile", "Result", "Inventory", "Run date"},
+		features,
+		[]string{"Report"},
+	)
 	var out bytes.Buffer
 	out.WriteString(
 		"# Cluster Inventory API conformance\n\nEach row is a submitted run. " +
@@ -365,11 +371,10 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 	if len(entries) == 0 {
 		out.WriteString("No accepted reports.\n")
 	}
-	group := ""
+	var group matrixGroup
 	for _, e := range entries {
 		r := e.report
-		g := r.Specification.Revision + "/" + r.Suite.Revision + "/" + r.API.Revision
-		if g != group {
+		if g := (matrixGroup{r.Specification.Revision, r.Suite.Revision, r.API.Revision}); g != group {
 			group = g
 			fmt.Fprintf(
 				&out,
@@ -379,15 +384,7 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 				r.Suite.Revision,
 				r.API.Revision,
 			)
-			out.WriteString("| Implementation | Version / commit | Mode | Profile | Result | Inventory | Run date |")
-			for _, f := range features {
-				fmt.Fprintf(&out, " %s |", f)
-			}
-			out.WriteString(" Report |\n|---|---|---|---|---|---|---|")
-			for range features {
-				out.WriteString("---|")
-			}
-			out.WriteString("---|\n")
+			fmt.Fprintf(&out, "| %s |\n|%s\n", strings.Join(columns, " | "), strings.Repeat("---|", len(columns)))
 		}
 		p := r.Profiles[0]
 		fmt.Fprintf(
@@ -404,17 +401,7 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 			r.Date,
 		)
 		for _, f := range features {
-			value := "Unclaimed"
-			if slices.Contains(p.SupportedFeatures, f) {
-				value = "passed"
-				for _, t := range p.Tests {
-					if t.Feature == f && t.Outcome != Passed {
-						value = string(t.Outcome)
-						break
-					}
-				}
-			}
-			fmt.Fprintf(&out, " %s |", value)
+			fmt.Fprintf(&out, " %s |", featureStatus(p, f))
 		}
 		u := url.URL{Path: e.path}
 		fmt.Fprintf(&out, " [YAML](%s) |\n", u.String())

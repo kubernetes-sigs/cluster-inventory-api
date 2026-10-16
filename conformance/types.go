@@ -21,12 +21,15 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	cp "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	cpclient "sigs.k8s.io/cluster-inventory-api/client/clientset/versioned"
 )
 
 const (
 	LevelMust             = "MUST"
 	LevelShould           = "SHOULD"
+	LevelMay              = "MAY"
+	LevelInformative      = "Informative"
 	ScopeAPI              = "api"
 	ScopeManager          = "manager"
 	ScopeInventory        = "inventory"
@@ -46,7 +49,7 @@ const (
 	ReportAPIVersion      = "conformance.multicluster.x-k8s.io/v1alpha1"
 	ReportKind            = "ConformanceReport"
 	ProducerProfile       = "CLUSTERPROFILE-PRODUCER"
-	ClusterProfileAPI     = "ClusterProfile"
+	ClusterProfileAPI     = cp.ClusterProfileKind
 	SpecRevision          = "3300d87b960c22051c66f1d1072e424a5cda5b5d"
 	APIRevision           = "dc460e8ca90ddc100fb5c7ba3ad082f11b200537"
 	Development           = "development"
@@ -132,6 +135,9 @@ type Requirement struct {
 	Scope   string `json:"scope"             yaml:"scope"`
 	Ref     string `json:"ref"               yaml:"ref"`
 }
+
+// Optional reports whether the requirement applies only to implementations that claim its feature.
+func (r Requirement) Optional() bool { return r.Feature != "" }
 
 type TestResult struct {
 	Requirement `        json:",inline"           yaml:",inline"`
