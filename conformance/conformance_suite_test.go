@@ -19,6 +19,8 @@ package conformance_test
 import (
 	"testing"
 
+	_ "github.com/onsi/ginkgo/v2"
+
 	"sigs.k8s.io/cluster-inventory-api/conformance"
 )
 

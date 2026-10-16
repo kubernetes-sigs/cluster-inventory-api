@@ -17,239 +17,128 @@ limitations under the License.
 package conformance
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
-
-	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/ginkgo/v2/types"
 )
 
-var (
-	alphaAPI = api{Name: "Alpha"}
-	betaAPI  = api{Name: "Beta"}
-	testAPIs = []api{alphaAPI, betaAPI}
-)
+func completeReport(t *testing.T) ConformanceReport {
+	t.Helper()
+	o, _, _ := sampleOptions(sampleProfile("a", testInventory, "id-a"))
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
-func fakeSpecReport(apiName, text, label string, state types.SpecState) types.SpecReport {
-	return types.SpecReport{
-		LeafNodeType:             types.NodeTypeIt,
-		LeafNodeText:             text,
-		LeafNodeLabels:           []string{label},
-		ContainerHierarchyTexts:  []string{apiName},
-		ContainerHierarchyLabels: [][]string{{apiName}},
-		State:                    state,
-		ReportEntries: types.ReportEntries{{
-			Name:  SpecRefReportEntry,
-			Value: types.WrapEntryValue("https://example.com/" + apiName),
+func TestUnitSubmissionAcceptance(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		modify func(*ConformanceReport)
+	}{
+		{"unknown schema", func(r *ConformanceReport) { r.APIVersion = "other/v1" }},
+		{"empty metadata", func(r *ConformanceReport) { r.Implementation.Project = "" }},
+		{"missing contact", func(r *ConformanceReport) { r.Implementation.Contact = nil }},
+		{"dirty suite", func(r *ConformanceReport) { r.Suite.Dirty = true }},
+		{"dirty implementation", func(r *ConformanceReport) { r.Implementation.Dirty = true }},
+		{"invalid source revision", func(r *ConformanceReport) { r.Suite.Revision = "main" }},
+		{"moving spec", func(r *ConformanceReport) { r.Specification.Revision = "master" }},
+		{"wrong catalog", func(r *ConformanceReport) { r.Suite.CatalogDigest = "wrong" }},
+		{"missing check", func(r *ConformanceReport) { r.Profiles[0].Tests = r.Profiles[0].Tests[1:] }},
+		{"duplicate check", func(r *ConformanceReport) { r.Profiles[0].Tests[1] = r.Profiles[0].Tests[0] }},
+		{"tampered count", func(r *ConformanceReport) { r.Profiles[0].Statistics.Passed++ }},
+		{"tampered result", func(r *ConformanceReport) {
+			r.Profiles[0].Tests[0].Outcome = Skipped
+			r.Profiles[0].Tests[0].Message = "filtered"
 		}},
-	}
-}
-
-func fakeReport() ginkgo.Report {
-	return ginkgo.Report{SpecReports: types.SpecReports{
-		fakeSpecReport(alphaAPI.Name, "must do a", RequiredLabel, types.SpecStatePassed),
-		fakeSpecReport(alphaAPI.Name, "should do a", OptionalLabel, types.SpecStateFailed),
-		fakeSpecReport(betaAPI.Name, "must do b", RequiredLabel, types.SpecStatePassed),
-	}}
-}
-
-func TestBuildReportGroupsSpecsByAPI(t *testing.T) {
-	data, err := buildReport(fakeReport(), testAPIs, testAPIs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got := apiReportNames(data); !slices.Equal(got, []string{"Alpha", "Beta"}) {
-		t.Fatalf("expected the APIs Alpha and Beta in that order, got %v", got)
-	}
-
-	if data.Passed != 2 || data.Total != 3 {
-		t.Errorf("expected 2 of 3 tests passed overall, got %d of %d", data.Passed, data.Total)
-	}
-
-	alpha := data.APIs[0]
-	if alpha.Passed != 1 || alpha.Total != 2 {
-		t.Errorf("expected 1 of 2 Alpha tests passed, got %d of %d", alpha.Passed, alpha.Total)
-	}
-
-	if got := groupNames(alpha); !slices.Equal(got, []string{RequiredLabel, OptionalLabel}) {
-		t.Errorf("expected the Alpha groups Required and Optional in that order, got %v", got)
-	}
-
-	required := alpha.Groups[0].Tests[0]
-	if required.Desc != "Alpha must do a" || !required.Passed || required.Ref != "https://example.com/Alpha" {
-		t.Errorf("unexpected Required Alpha test: %+v", required)
-	}
-
-	if len(required.Labels) != 0 {
-		t.Errorf("the API and reporting labels must not be listed as extra labels, got %v", required.Labels)
-	}
-
-	if optional := alpha.Groups[1].Tests[0]; !optional.Failed || optional.Passed {
-		t.Errorf("expected the failed Optional Alpha test to be reported as failed, got %+v", optional)
-	}
-
-	if beta := data.APIs[1]; beta.Passed != 1 || beta.Total != 1 || len(beta.Groups) != 1 {
-		t.Errorf("expected a single passed Required Beta test, got %+v", beta)
-	}
-}
-
-func TestBuildReportOmitsUnselectedAPIs(t *testing.T) {
-	report := fakeReport()
-	// Ginkgo reports the specs filtered out by the API label filter as skipped.
-	for i := range report.SpecReports {
-		if report.SpecReports[i].ContainerHierarchyTexts[0] == alphaAPI.Name {
-			report.SpecReports[i].State = types.SpecStateSkipped
-		}
-	}
-
-	data, err := buildReport(report, testAPIs, []api{betaAPI})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got := apiReportNames(data); !slices.Equal(got, []string{"Beta"}) {
-		t.Fatalf("expected only the Beta API to be reported, got %v", got)
-	}
-
-	if data.Passed != 1 || data.Total != 1 {
-		t.Errorf("expected 1 of 1 tests passed, got %d of %d", data.Passed, data.Total)
-	}
-}
-
-func TestBuildReportRejectsSpecWithoutAPILabel(t *testing.T) {
-	unlabeled := fakeSpecReport(alphaAPI.Name, "must do a", RequiredLabel, types.SpecStatePassed)
-	unlabeled.ContainerHierarchyLabels = nil
-
-	_, err := buildReport(ginkgo.Report{SpecReports: types.SpecReports{unlabeled}}, testAPIs, testAPIs)
-	if err == nil || !strings.Contains(err.Error(), "Alpha, Beta") {
-		t.Fatalf("expected an error naming the known APIs, got %v", err)
-	}
-}
-
-func TestBuildReportRejectsSpecWithoutExactlyOneReportingLabel(t *testing.T) {
-	for name, labels := range map[string][]string{
-		"no reporting label":    nil,
-		"both reporting labels": {RequiredLabel, OptionalLabel},
+		{"empty outcome reason", func(r *ConformanceReport) { r.Profiles[0].Tests[0].Outcome = Skipped; finish(r) }},
+		{"development result", func(r *ConformanceReport) { r.RunMode = Development }},
+		{"no observed profiles", func(r *ConformanceReport) { r.Environment.ObservedProfiles = nil }},
+		{"unknown environment", func(r *ConformanceReport) { r.Environment.KubernetesVersion = "" }},
+		{"failure", func(r *ConformanceReport) {
+			r.Profiles[0].Tests[0].Outcome = Failed
+			r.Profiles[0].Tests[0].Message = "not served"
+			finish(r)
+		}},
+		{"unknown", func(r *ConformanceReport) {
+			r.Profiles[0].Tests[0].Outcome = Unknown
+			r.Profiles[0].Tests[0].Message = "access denied"
+			finish(r)
+		}},
 	} {
-		t.Run(name, func(t *testing.T) {
-			spec := fakeSpecReport(alphaAPI.Name, "must do a", RequiredLabel, types.SpecStatePassed)
-			spec.LeafNodeLabels = labels
-
-			_, err := buildReport(ginkgo.Report{SpecReports: types.SpecReports{spec}}, testAPIs, testAPIs)
-			if err == nil || !strings.Contains(err.Error(), "exactly one of the reporting labels") {
-				t.Fatalf("expected an error about the reporting labels, got %v", err)
+		t.Run(tc.name, func(t *testing.T) {
+			r := completeReport(t)
+			tc.modify(&r)
+			if err := ValidateReport(r, true); err == nil {
+				t.Fatal("invalid submission accepted")
 			}
 		})
 	}
+	r := completeReport(t)
+	r.Profiles[0].Tests[0].Outcome = Skipped
+	r.Profiles[0].Tests[0].Message = "unverified"
+	finish(&r)
+	if r.Result != Partial {
+		t.Fatal(r.Result)
+	}
+	if err := ValidateReport(r, true); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestWriteReportsSingle(t *testing.T) {
-	dir := t.TempDir()
-	data, err := buildReport(fakeReport(), testAPIs, testAPIs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The metadata fields are independent: the block must render without a project name.
-	data.Implementation = implementationInfo{Organization: "Example Org", URL: "https://example.com/impl"}
-
-	if err := writeReports(dir, []string{reportFormatHTML, reportFormatYAML}, false, data); err != nil {
-		t.Fatal(err)
-	}
-
-	expectFiles(t, dir, "report.html", "report.yaml")
-
-	html := readFile(t, filepath.Join(dir, "report.html"))
-	wanted := []string{"Alpha API", "Beta API", "Alpha must do a", "Beta must do b", "https://example.com/Alpha",
-		"(Example Org)", "https://example.com/impl"}
-	for _, want := range wanted {
-		if !strings.Contains(html, want) {
-			t.Errorf("expected the single HTML report to contain %q", want)
+func TestUnitMatrixComparabilityAndPartial(t *testing.T) {
+	root := t.TempDir()
+	first := completeReport(t)
+	second := completeReport(t)
+	second.Implementation.Project = testOther
+	second.Suite.Revision = strings.Repeat("c", 40)
+	second.Profiles[0].Tests[0].Outcome = Skipped
+	second.Profiles[0].Tests[0].Message = "not executed"
+	finish(&second)
+	for name, r := range map[string]ConformanceReport{"first": first, "second": second} {
+		if err := WriteReports(filepath.Join(root, name), []string{ReportFormatYAML}, false, r); err != nil {
+			t.Fatal(err)
 		}
 	}
+	var out bytes.Buffer
+	if err := GenerateMatrix(root, &out); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if strings.Count(s, "## multicluster.x-k8s.io/v1alpha2") != 2 || !strings.Contains(s, "| partial |") ||
+		!strings.Contains(s, "| success |") ||
+		!strings.Contains(s, "first/report.yaml") {
+		t.Fatalf("unexpected matrix:\n%s", s)
+	}
+	second.Profiles[0].Tests[0].Outcome = Failed
+	second.Profiles[0].Tests[0].Message = "violated"
+	finish(&second)
+	if err := WriteReports(filepath.Join(root, "second"), []string{ReportFormatYAML}, false, second); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := GenerateMatrix(root, &out); err == nil || out.Len() != 0 {
+		t.Fatal("invalid matrix produced partial output")
+	}
+}
 
-	yamlReport := readFile(t, filepath.Join(dir, "report.yaml"))
-	for _, want := range []string{"name: Alpha", "name: Beta", "passed: 2", "total: 3"} {
-		if !strings.Contains(yamlReport, want) {
-			t.Errorf("expected the single YAML report to contain %q", want)
+func TestUnitReadReportRejectsAmbiguousDocuments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.yaml")
+	for _, data := range []string{
+		"unknownField: true\n",
+		"apiVersion: one\napiVersion: two\n",
+		"apiVersion: one\n---\napiVersion: two\n",
+	} {
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadReport(path); err == nil {
+			t.Fatalf("accepted ambiguous report %q", data)
 		}
 	}
-}
-
-func TestWriteReportsPerAPI(t *testing.T) {
-	dir := t.TempDir()
-	data, err := buildReport(fakeReport(), testAPIs, testAPIs)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := writeReports(dir, []string{reportFormatHTML, reportFormatYAML}, true, data); err != nil {
-		t.Fatal(err)
-	}
-
-	expectFiles(t, dir, "report-alpha.html", "report-alpha.yaml", "report-beta.html", "report-beta.yaml")
-
-	alpha := readFile(t, filepath.Join(dir, "report-alpha.html"))
-	if !strings.Contains(alpha, "Alpha must do a") || strings.Contains(alpha, "Beta") {
-		t.Errorf("expected the Alpha HTML report to contain only Alpha tests")
-	}
-
-	beta := readFile(t, filepath.Join(dir, "report-beta.yaml"))
-	if !strings.Contains(beta, "name: Beta") || strings.Contains(beta, "Alpha") ||
-		!strings.Contains(beta, "passed: 1") || !strings.Contains(beta, "total: 1") {
-		t.Errorf("expected the Beta YAML report to contain only Beta tests with its own totals, got:\n%s", beta)
-	}
-}
-
-func apiReportNames(data reportData) []string {
-	names := make([]string, 0, len(data.APIs))
-	for _, a := range data.APIs {
-		names = append(names, a.Name)
-	}
-
-	return names
-}
-
-func groupNames(apiRep apiReport) []string {
-	names := make([]string, 0, len(apiRep.Groups))
-	for _, g := range apiRep.Groups {
-		names = append(names, g.Name)
-	}
-
-	return names
-}
-
-func expectFiles(t *testing.T, dir string, names ...string) {
-	t.Helper()
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		got = append(got, entry.Name())
-	}
-	slices.Sort(got)
-	slices.Sort(names)
-
-	if !slices.Equal(got, names) {
-		t.Fatalf("expected the report files %v, got %v", names, got)
-	}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return string(content)
 }

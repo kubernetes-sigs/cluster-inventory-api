@@ -76,8 +76,8 @@ CONFORMANCE_NAMESPACE ?= conformance-inventory
 CONFORMANCE_MANAGER ?= conformance-sample-manager
 
 .PHONY: test-conformance
-test-conformance: ## Run the ClusterProfile API conformance suite (suite flags via CONFORMANCE_ARGS).
-	cd conformance && go test ./... -v -ginkgo.v -args $(CONFORMANCE_ARGS)
+test-conformance: ## Run the Cluster Inventory API conformance observer (suite flags via CONFORMANCE_ARGS).
+	cd conformance && go test ./... -v -run '^TestConformance$$' -args $(CONFORMANCE_ARGS)
 
 ENVTEST_KUBECONFIG ?= $(LOCALBIN)/conformance-envtest.kubeconfig
 

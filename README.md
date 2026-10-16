@@ -60,6 +60,14 @@ The `PlacementDecision API` solves the integration explosion problem:
 Published plugin images and runtime consumption patterns are documented in
 [Using Plugin OCI Images](docs/plugin-images.md).
 
+## Conformance
+
+Cluster manager developers can use the [conformance suite](conformance/README.md)
+to test the ClusterProfiles produced by their implementation. The guide covers
+running the tests, integrating them into an implementation's test suite, and
+interpreting the results. See [Conformance Reports](conformance/reports/README.md)
+for report submission rules and reproduction requirements.
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
