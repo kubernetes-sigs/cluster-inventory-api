@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cluster Inventory API conformance</title>
+<style>body{font:16px system-ui;margin:2rem;line-height:1.5}table{border-collapse:collapse;width:100%;margin:1rem 0}td,th{border:1px solid #bbb;padding:.6rem;text-align:left;vertical-align:top}th{background:#eee}code{overflow-wrap:anywhere}caption{text-align:left;font-weight:bold;padding:.6rem 0}</style></head><body>
+<h1>Cluster Inventory API conformance</h1><p>Result: <strong>{{.Result}}</strong> · {{.RunMode}} · {{.Date}}</p>
+<p>Implementation: {{.Implementation.Organization}} / {{.Implementation.Project}} {{.Implementation.Version}} ({{.Implementation.Mode}})<br>Commit: <code>{{.Implementation.Revision}}</code></p>
+<p>Suite: {{.Suite.Version}} · <code>{{.Suite.Revision}}</code><br>API: {{.API.GroupVersion}} · <code>{{.API.Revision}}</code><br>Specification: <a href="{{.Specification.URL}}">{{.Specification.Revision}}</a></p>
+<p>Inventory: {{.Environment.InventoryNamespace}} · Manager: {{.Environment.ClusterManager}} · Kubernetes: {{.Environment.KubernetesVersion}}</p>
+{{range .Errors}}<p>Run error: {{.}}</p>{{end}}
+{{range .Profiles}}<h2>{{.Name}}: {{.Result}}</h2><p>Claimed features: {{range .SupportedFeatures}}{{.}} {{else}}None{{end}}</p>
+<table><caption>Checks: {{.Statistics.Passed}} passed / {{.Statistics.Total}} total</caption><thead><tr><th>Check</th><th>Requirement</th><th>Feature / scope</th><th>Outcome</th></tr></thead><tbody>
+{{range .Tests}}<tr><td><a href="{{.Ref}}">{{.ID}}</a><br>{{.Description}}</td><td>{{.Level}}</td><td>{{.Feature}} / {{.Scope}}</td><td><strong>{{.Outcome}}</strong>{{if .Message}}<br>{{.Message}}{{end}}</td></tr>{{end}}
+</tbody></table>{{end}}<p>These results cover the observed output conventions. They do not verify registration lifecycle, member-state truth, or consumer behavior.</p></body></html>

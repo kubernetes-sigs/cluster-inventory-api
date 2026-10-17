@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/dynamic"
@@ -149,6 +150,133 @@ var _ = ginkgo.Describe("ClusterProfileAPI test", func() {
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	})
+
+	ginkgo.It("Should reject a ClusterProfile without a cluster manager", func(ctx context.Context) {
+		dynamicClient, err := dynamic.NewForConfig(cfg)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+		clusterProfile := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": cpv1alpha2.GroupVersion.String(),
+			"kind":       cpv1alpha2.ClusterProfileKind,
+			"metadata":   map[string]interface{}{"name": clusterName},
+			"spec":       map[string]interface{}{"displayName": clusterName},
+		}}
+
+		_, err = dynamicClient.Resource(cpv1alpha2.ClusterProfileSchemeGroupVersionResource).
+			Namespace(testNamespace).Create(ctx, clusterProfile, metav1.CreateOptions{})
+		gomega.Expect(errors.IsInvalid(err)).To(gomega.BeTrue())
+	})
+
+	ginkgo.It("Should reject an update changing the cluster manager name", func(ctx context.Context) {
+		clusterProfile, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Create(
+			ctx,
+			&cpv1alpha2.ClusterProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName},
+				Spec: cpv1alpha2.ClusterProfileSpec{
+					ClusterManager: cpv1alpha2.ClusterManager{
+						Name: clusterManagerName,
+					},
+				},
+			},
+			metav1.CreateOptions{},
+		)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+		clusterProfile.Spec.ClusterManager.Name = clusterManagerName + "-changed"
+		_, err = clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Update(
+			ctx,
+			clusterProfile,
+			metav1.UpdateOptions{},
+		)
+		gomega.Expect(errors.IsInvalid(err)).To(gomega.BeTrue())
+
+		unchanged, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Get(
+			ctx, clusterProfile.Name, metav1.GetOptions{})
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(unchanged.Spec.ClusterManager.Name).To(gomega.Equal(clusterManagerName))
+	})
+
+	ginkgo.It("Should isolate the spec from status updates and the status from spec updates",
+		func(ctx context.Context) {
+			clusterProfile, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Create(
+				ctx,
+				&cpv1alpha2.ClusterProfile{
+					ObjectMeta: metav1.ObjectMeta{Name: clusterName},
+					Spec: cpv1alpha2.ClusterProfileSpec{
+						DisplayName: clusterName,
+						ClusterManager: cpv1alpha2.ClusterManager{
+							Name: clusterManagerName,
+						},
+					},
+				},
+				metav1.CreateOptions{},
+			)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+			newClusterProfile := clusterProfile.DeepCopy()
+			newClusterProfile.Spec.DisplayName = clusterName + "-via-status"
+			newClusterProfile.Status.Version.Kubernetes = "1.35.0"
+
+			afterStatus, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).UpdateStatus(
+				ctx,
+				newClusterProfile,
+				metav1.UpdateOptions{},
+			)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			gomega.Expect(afterStatus.Spec.DisplayName).To(gomega.Equal(clusterName))
+			gomega.Expect(afterStatus.Status.Version.Kubernetes).To(gomega.Equal("1.35.0"))
+
+			afterStatus.Spec.DisplayName = clusterName + "-renamed"
+			afterStatus.Status.Version.Kubernetes = "0.0.0-via-spec"
+
+			afterUpdate, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Update(
+				ctx,
+				afterStatus,
+				metav1.UpdateOptions{},
+			)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			gomega.Expect(afterUpdate.Spec.DisplayName).To(gomega.Equal(clusterName + "-renamed"))
+			gomega.Expect(afterUpdate.Status.Version.Kubernetes).To(gomega.Equal("1.35.0"))
+		},
+	)
+
+	ginkgo.DescribeTable("Should reject a status condition violating metav1.Condition validation",
+		func(ctx context.Context, condition metav1.Condition) {
+			clusterProfile, err := clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).Create(
+				ctx,
+				&cpv1alpha2.ClusterProfile{
+					ObjectMeta: metav1.ObjectMeta{Name: clusterName},
+					Spec: cpv1alpha2.ClusterProfileSpec{
+						ClusterManager: cpv1alpha2.ClusterManager{
+							Name: clusterManagerName,
+						},
+					},
+				},
+				metav1.CreateOptions{},
+			)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+			clusterProfile.Status.Conditions = []metav1.Condition{condition}
+			_, err = clusterProfileClient.ApisV1alpha2().ClusterProfiles(testNamespace).UpdateStatus(
+				ctx,
+				clusterProfile,
+				metav1.UpdateOptions{},
+			)
+			gomega.Expect(errors.IsInvalid(err)).To(gomega.BeTrue())
+		},
+		ginkgo.Entry("a status other than True, False or Unknown", metav1.Condition{
+			Type:               cpv1alpha2.ClusterConditionControlPlaneHealthy,
+			Status:             metav1.ConditionStatus("Degraded"),
+			Reason:             "Reason",
+			LastTransitionTime: metav1.Now(),
+		}),
+		ginkgo.Entry("an empty reason", metav1.Condition{
+			Type:               cpv1alpha2.ClusterConditionControlPlaneHealthy,
+			Status:             metav1.ConditionTrue,
+			Reason:             "",
+			LastTransitionTime: metav1.Now(),
+		}),
+	)
 
 	ginkgo.Context("access provider validation", func() {
 		var clusterProfile *cpv1alpha2.ClusterProfile
