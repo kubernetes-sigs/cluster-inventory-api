@@ -68,14 +68,16 @@ running the tests, integrating them into an implementation's test suite, and
 interpreting the results. See [Conformance Reports](conformance/reports/README.md)
 for report submission rules and reproduction requirements.
 
+## API Compatibility and Versions
+
+Cluster managers and API consumers can check [API Versions](docs/api-versions.md)
+for served versions, planned removals, and changes in each release. The
+[Compatibility Policy](docs/compatibility.md) covers compatibility guarantees and
+deprecation rules for CRD APIs, public Go packages, and plugin images.
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
-
-Compatibility and deprecation rules for released APIs and documented interfaces
-are documented in [docs/compatibility.md](docs/compatibility.md).
-API version upgrade and migration notes are documented in
-[docs/api-versions.md](docs/api-versions.md).
 
 You can reach the maintainers of this project at:
 

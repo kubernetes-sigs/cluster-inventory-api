@@ -5,6 +5,9 @@ documented public Go packages, and documented plugin image contracts in this
 repository. It is based on Kubernetes API compatibility and deprecation guidance
 where that guidance applies to CRD APIs.
 
+See [API Versions](api-versions.md) for the API versions currently served and
+their removal plans.
+
 ## Scope
 
 This policy applies to:
@@ -22,6 +25,17 @@ This policy does not apply to:
 - Internal implementation details that are not part of a documented API or
   package contract.
 
+## Versions
+
+A repository release and a CRD API version are versioned separately:
+
+| Version | Example | Applies to |
+| --- | --- | --- |
+| Repository release | `v0.2.0` | CRDs, Go packages, and plugin images published in that release |
+| CRD API version | `multicluster.x-k8s.io/v1alpha2` | The API schema and endpoint used by ClusterProfile and PlacementDecision clients |
+
+A repository release can serve more than one CRD API version.
+
 ## API Compatibility
 
 A change is compatible when existing API consumers and stored objects that do not
@@ -32,8 +46,7 @@ Compatible changes include:
 - Adding an optional field with a backward-compatible default.
 - Adding a new status field, condition type, or condition reason when API
   consumers are expected to tolerate unknown status values.
-- Adding a new CRD version without removing the old served version in the same
-  release.
+- Adding a new served CRD version.
 - Loosening validation when existing semantics remain unchanged.
 - Adding new plugin options that are optional and do not change existing option
   behavior.
@@ -85,15 +98,15 @@ fixes, incorrect behavior, or interfaces that were never included in a release.
 When removing a field from a released alpha CRD API, prefer removing it from a
 new API version instead of directly changing the existing served version. The
 old version should remain served with the deprecated field until the documented
-deprecation period or approved exception has elapsed. For example, if
-`ClusterProfile.status.credentialProviders` is replaced by
-`ClusterProfile.status.accessProviders`, `credentialProviders` should remain
-available in `v1alpha1` while being removed from a later version such as
-`v1alpha2`.
+deprecation period or approved exception has elapsed.
 
 For beta or stable CRD APIs, follow the Kubernetes deprecation policy. In
 particular, beta API versions require a longer deprecation window before
 removal, and stable APIs must not be removed without a major-version policy.
+
+When introducing a new served CRD API version, continue serving the immediately
+preceding version. Older versions may stop being served in the same release if
+they meet the deprecation requirements in this section.
 
 For documented public Go packages and plugin image contracts while this
 repository remains in the v0.x release series, incompatible changes may be made
@@ -114,8 +127,6 @@ When a release introduces a replacement API field or behavior:
 
 When a new CRD version is introduced:
 
-- Do not introduce a new served version and remove the previous served version in
-  the same release.
 - Do not make a new storage version in the same release unless rollback and
   stored-object compatibility are addressed.
 - Do not require a conversion webhook for simple alpha version bumps unless the
@@ -123,9 +134,6 @@ When a new CRD version is introduced:
   CRD version handling.
 - Document supported upgrade paths in release notes or a dedicated versions
   document.
-
-Current API version upgrade and migration notes are documented in
-[api-versions.md](api-versions.md).
 
 Supported Kubernetes versions are documented separately by the project security
 policy and release notes.
