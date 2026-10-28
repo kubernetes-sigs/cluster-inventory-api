@@ -1,0 +1,11 @@
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ClusterProfile
+metadata:
+  name: cluster-us-west-1
+  namespace: cluster-inventory
+  labels:
+    x-k8s.io/cluster-manager: my-fleet-manager
+spec:
+  displayName: "US West 1 Production Cluster"
+  clusterManager:
+    name: my-fleet-manager
