@@ -35,6 +35,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/rest"
@@ -293,6 +295,9 @@ func processClusterProfileSourcedEnvVarData(
 	}
 
 	// Write the processed list back to the execConfig in the expected format.
+	// Sort by name: map iteration order is random, and client-go keys its
+	// exec authenticator cache on the whole ExecConfig, so an unstable order
+	// gives every rest.Config built for the same cluster a new authenticator.
 	envVarList := make([]clientcmdapi.ExecEnvVar, 0, len(envVars))
 	for name, value := range envVars {
 		envVarList = append(envVarList, clientcmdapi.ExecEnvVar{
@@ -300,6 +305,9 @@ func processClusterProfileSourcedEnvVarData(
 			Value: value,
 		})
 	}
+	slices.SortFunc(envVarList, func(a, b clientcmdapi.ExecEnvVar) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 	execConfig.Env = envVarList
 	return nil
 }

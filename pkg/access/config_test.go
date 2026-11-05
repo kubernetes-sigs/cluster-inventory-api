@@ -592,6 +592,29 @@ var _ = ginkgo.Describe("Config", func() {
 				))
 		}
 
+		ginkgo.It("should order profile-sourced env vars deterministically", func() {
+			want := []clientcmdapi.ExecEnvVar{
+				{Name: additionalEnvVarName1, Value: additionalEnvVarVal1},
+				{Name: additionalEnvVarName2, Value: additionalEnvVarVal2},
+				{Name: "ZZZ_PROVIDER_LOCAL", Value: providerLocalEnvVarDefault},
+			}
+			for range 20 {
+				execCP := New([]Provider{{
+					Name: "test-provider-1",
+					ExecConfig: &clientcmdapi.ExecConfig{
+						Command: "cmd",
+						Env: []clientcmdapi.ExecEnvVar{
+							{Name: "ZZZ_PROVIDER_LOCAL", Value: providerLocalEnvVarDefault},
+						},
+					},
+					ProfileSourcedEnvVarsPolicy: ProfileSourcedEnvVarsPolicyReplace,
+				}})
+				config, err := execCP.BuildConfigFromCP(clusterProfile)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(config.ExecProvider.Env).To(gomega.Equal(want))
+			}
+		})
+
 		ginkgo.It("should build config with additional "+
 			"CLI args (append) and env vars (replace)",
 			func() {
