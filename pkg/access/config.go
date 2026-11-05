@@ -137,6 +137,9 @@ func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha2.ClusterProfile) (*re
 			clusterAccessor.Name,
 		)
 	}
+	// Work on a copy so that profile-sourced args and env vars do not leak
+	// into the shared provider config and from there into other clusters.
+	execConfig = execConfig.DeepCopy()
 
 	// 3. Add additional CLI arguments and environment variables
 	// from cluster extensions if allowed.

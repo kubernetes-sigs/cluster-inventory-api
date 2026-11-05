@@ -610,6 +610,36 @@ var _ = ginkgo.Describe("Config", func() {
 				)
 			})
 
+		ginkgo.It("should not modify the provider exec config across calls", func() {
+			providerExecConfig := &clientcmdapi.ExecConfig{
+				Command: "test-command",
+				Args:    []string{"--provider-arg"},
+				Env: []clientcmdapi.ExecEnvVar{
+					{Name: additionalEnvVarName1, Value: providerLocalEnvVarDefault},
+				},
+			}
+			wantProviderExecConfig := providerExecConfig.DeepCopy()
+			execCP := New([]Provider{{
+				Name:                        "test-provider-1",
+				ExecConfig:                  providerExecConfig,
+				ProfileSourcedCLIArgsPolicy: ProfileSourcedCLIArgsPolicyAppend,
+				ProfileSourcedEnvVarsPolicy: ProfileSourcedEnvVarsPolicyReplace,
+			}})
+
+			for range 2 {
+				config, err := execCP.BuildConfigFromCP(clusterProfile)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(config.ExecProvider.Args).To(gomega.Equal(
+					[]string{"--provider-arg", "--audience", "audience"},
+				))
+				gomega.Expect(config.ExecProvider.Env).To(gomega.ConsistOf(
+					clientcmdapi.ExecEnvVar{Name: additionalEnvVarName1, Value: additionalEnvVarVal1},
+					clientcmdapi.ExecEnvVar{Name: additionalEnvVarName2, Value: additionalEnvVarVal2},
+				))
+			}
+			gomega.Expect(execCP.Providers[0].ExecConfig).To(gomega.Equal(wantProviderExecConfig))
+		})
+
 		ginkgo.It("should build config successfully (ignore additional CLI args and additional env vars)", func() {
 			cred := clientauthenticationv1.ExecCredential{
 				TypeMeta: metav1.TypeMeta{
