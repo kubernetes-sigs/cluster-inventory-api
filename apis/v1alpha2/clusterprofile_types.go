@@ -162,7 +162,10 @@ type NamedExtension struct {
 	// +required
 	Name string `json:"name"`
 
-	// Extension contains the provider-specific configuration.
+	// Extension contains provider-specific configuration, such as an argument
+	// array or an environment variable map.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
 	// +required
 	Extension runtime.RawExtension `json:"extension"`
 }
