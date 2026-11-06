@@ -471,9 +471,9 @@ spec:
                               configuration.
                             properties:
                               extension:
-                                description: Extension contains the provider-specific
-                                  configuration.
-                                type: object
+                                description: |-
+                                  Extension contains provider-specific configuration, such as an argument
+                                  array or an environment variable map.
                                 x-kubernetes-preserve-unknown-fields: true
                               name:
                                 description: |-
