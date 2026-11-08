@@ -517,10 +517,22 @@ var _ = ginkgo.Describe("Config", func() {
 			gomega.Expect(config.TLSClientConfig.ServerName).To(gomega.BeEmpty())
 			gomega.Expect(config.TLSClientConfig.Insecure).To(gomega.BeFalse())
 			gomega.Expect(config.DisableCompression).To(gomega.BeFalse())
-			request := httptest.NewRequest(http.MethodGet, "https://test-server.com", nil)
-			proxyURL, err := config.Proxy(request)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(proxyURL).To(gomega.BeNil())
+			// A nil Proxy keeps client-go's default (http.ProxyFromEnvironment) and
+			// lets it reuse cached TLS transports.
+			gomega.Expect(config.Proxy).To(gomega.BeNil())
+		})
+
+		ginkgo.It("should reject an unparsable proxy URL", func() {
+			clusterProfile.Status.AccessProviders[0].Cluster.ProxyURL = "http://proxy.example.com:port"
+			execCP := New([]Provider{{
+				Name: "test-provider-1",
+				ExecConfig: &clientcmdapi.ExecConfig{
+					Command: "test-command",
+				},
+			}})
+
+			_, err := execCP.BuildConfigFromCP(clusterProfile)
+			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("failed to parse proxy URL")))
 		})
 
 		buildConfigWithEnvVarPolicyTest := func(
