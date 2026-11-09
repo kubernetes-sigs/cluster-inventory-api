@@ -173,12 +173,16 @@ func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha2.ClusterProfile) (*re
 			ServerName: clusterAccessor.Cluster.TLSServerName,
 			Insecure:   clusterAccessor.Cluster.InsecureSkipTLSVerify,
 		},
-		Proxy: func(request *http.Request) (*url.URL, error) {
-			if clusterAccessor.Cluster.ProxyURL == "" {
-				return nil, nil
-			}
-			return url.Parse(clusterAccessor.Cluster.ProxyURL)
-		},
+	}
+	// Only set Proxy when the profile names one, as clientcmd does for kubeconfig
+	// clusters. A non-nil Proxy func turns off http.ProxyFromEnvironment and makes
+	// client-go skip its TLS transport cache, since functions cannot be compared.
+	if clusterAccessor.Cluster.ProxyURL != "" {
+		proxyURL, err := url.Parse(clusterAccessor.Cluster.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse proxy URL for cluster profile %q: %w", clusterprofile.Name, err)
+		}
+		config.Proxy = http.ProxyURL(proxyURL)
 	}
 
 	config.ExecProvider = &clientcmdapi.ExecConfig{
