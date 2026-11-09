@@ -182,6 +182,15 @@ func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha2.ClusterProfile) (*re
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse proxy URL for cluster profile %q: %w", clusterprofile.Name, err)
 		}
+		// The same schemes clientcmd accepts for a kubeconfig cluster proxy-url.
+		switch proxyURL.Scheme {
+		case "http", "https", "socks5":
+		default:
+			return nil, fmt.Errorf(
+				"unsupported proxy URL scheme %q for cluster profile %q, must be http, https, or socks5",
+				proxyURL.Scheme, clusterprofile.Name,
+			)
+		}
 		config.Proxy = http.ProxyURL(proxyURL)
 	}
 

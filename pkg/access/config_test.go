@@ -522,18 +522,44 @@ var _ = ginkgo.Describe("Config", func() {
 			gomega.Expect(config.Proxy).To(gomega.BeNil())
 		})
 
-		ginkgo.It("should reject an unparsable proxy URL", func() {
-			clusterProfile.Status.AccessProviders[0].Cluster.ProxyURL = "http://proxy.example.com:port"
-			execCP := New([]Provider{{
-				Name: "test-provider-1",
-				ExecConfig: &clientcmdapi.ExecConfig{
-					Command: "test-command",
-				},
-			}})
+		ginkgo.DescribeTable("should reject an invalid proxy URL",
+			func(proxyURL string, wantErr string) {
+				clusterProfile.Status.AccessProviders[0].Cluster.ProxyURL = proxyURL
+				execCP := New([]Provider{{
+					Name: "test-provider-1",
+					ExecConfig: &clientcmdapi.ExecConfig{
+						Command: "test-command",
+					},
+				}})
 
-			_, err := execCP.BuildConfigFromCP(clusterProfile)
-			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("failed to parse proxy URL")))
-		})
+				_, err := execCP.BuildConfigFromCP(clusterProfile)
+				gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(wantErr)))
+			},
+			ginkgo.Entry("unparsable port", "http://proxy.example.com:port", "failed to parse proxy URL"),
+			ginkgo.Entry("unsupported scheme", "ftp://proxy.example.com", "unsupported proxy URL scheme"),
+			ginkgo.Entry("host and port without a scheme", "localhost:3128", "unsupported proxy URL scheme"),
+		)
+
+		ginkgo.DescribeTable("should accept a supported proxy URL scheme",
+			func(proxyURL string) {
+				clusterProfile.Status.AccessProviders[0].Cluster.ProxyURL = proxyURL
+				execCP := New([]Provider{{
+					Name: "test-provider-1",
+					ExecConfig: &clientcmdapi.ExecConfig{
+						Command: "test-command",
+					},
+				}})
+
+				config, err := execCP.BuildConfigFromCP(clusterProfile)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gotURL, err := config.Proxy(httptest.NewRequest(http.MethodGet, "https://test-server.com", nil))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(gotURL.String()).To(gomega.Equal(proxyURL))
+			},
+			ginkgo.Entry("http", "http://proxy.example.com:3128"),
+			ginkgo.Entry("https", "https://proxy.example.com:3128"),
+			ginkgo.Entry("socks5", "socks5://proxy.example.com:1080"),
+		)
 
 		buildConfigWithEnvVarPolicyTest := func(
 			envVarsPolicy ProfileSourcedEnvVarsPolicy,
