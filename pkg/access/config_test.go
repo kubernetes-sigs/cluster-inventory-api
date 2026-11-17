@@ -19,6 +19,7 @@ package access
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
+	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 )
@@ -644,6 +646,37 @@ var _ = ginkgo.Describe("Config", func() {
 					providerLocalEnvVarDefault,
 				)
 			})
+
+		for _, policy := range []ProfileSourcedEnvVarsPolicy{
+			ProfileSourcedEnvVarsPolicyAppendIfNotExists,
+			ProfileSourcedEnvVarsPolicyReplace,
+		} {
+			for name, raw := range map[string][]byte{"null": []byte("null"), "empty": nil} {
+				desc := fmt.Sprintf("should keep provider env vars when the env vars extension is %s (%s)", name, policy)
+				ginkgo.It(desc, func() {
+					extensions := clusterProfile.Status.AccessProviders[0].Cluster.Extensions
+					extensions[2].Extension = runtime.RawExtension{Raw: raw}
+					execCP := New([]Provider{{
+						Name: "test-provider-1",
+						ExecConfig: &clientcmdapi.ExecConfig{
+							Command: "cmd",
+							Env: []clientcmdapi.ExecEnvVar{
+								{Name: "PROVIDER_LOCAL", Value: providerLocalEnvVarDefault},
+							},
+						},
+						ProfileSourcedEnvVarsPolicy: policy,
+					}})
+
+					var config *rest.Config
+					var err error
+					gomega.Expect(func() { config, err = execCP.BuildConfigFromCP(clusterProfile) }).NotTo(gomega.Panic())
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					gomega.Expect(config.ExecProvider.Env).To(gomega.Equal([]clientcmdapi.ExecEnvVar{
+						{Name: "PROVIDER_LOCAL", Value: providerLocalEnvVarDefault},
+					}))
+				})
+			}
+		}
 
 		ginkgo.It("should not modify the provider exec config across calls", func() {
 			providerExecConfig := &clientcmdapi.ExecConfig{

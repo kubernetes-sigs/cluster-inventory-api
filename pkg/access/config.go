@@ -261,6 +261,20 @@ func processClusterProfileSourcedCLIArgData(
 	}
 }
 
+// unmarshalEnvVars decodes the additional env vars extension. An empty or
+// null extension yields an empty map rather than a nil one, which the
+// callers write the provider's own env vars into.
+func unmarshalEnvVars(data []byte) (map[string]string, error) {
+	var envVars map[string]string
+	if err := yaml.Unmarshal(data, &envVars); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
+	}
+	if envVars == nil {
+		envVars = map[string]string{}
+	}
+	return envVars, nil
+}
+
 func processClusterProfileSourcedEnvVarData(
 	execConfig *clientcmdapi.ExecConfig,
 	data []byte,
@@ -273,8 +287,9 @@ func processClusterProfileSourcedEnvVarData(
 		// No action is needed.
 		return nil
 	case ProfileSourcedEnvVarsPolicyAppendIfNotExists:
-		if err := yaml.Unmarshal(data, &envVars); err != nil {
-			return fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
+		var err error
+		if envVars, err = unmarshalEnvVars(data); err != nil {
+			return err
 		}
 
 		// Add existing environment variables. If the same variable is specified twice
@@ -284,8 +299,9 @@ func processClusterProfileSourcedEnvVarData(
 			envVars[env.Name] = env.Value
 		}
 	case ProfileSourcedEnvVarsPolicyReplace:
-		if err := yaml.Unmarshal(data, &envVars); err != nil {
-			return fmt.Errorf("failed to unmarshal additional env vars extension: %w", err)
+		var err error
+		if envVars, err = unmarshalEnvVars(data); err != nil {
+			return err
 		}
 
 		// Add existing environment variables. If the same variable is specified twice
