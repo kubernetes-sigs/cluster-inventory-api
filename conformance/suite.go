@@ -80,9 +80,39 @@ func validateRunMode(mode string) error {
 	return nil
 }
 
-func validateOptions(o Options) error {
-	if err := validateInventory(o.Namespace, o.ExpectedClusters); err != nil {
-		return err
+// selectProfiles resolves --apis and --profiles. With neither set only the
+// default profile runs, so existing invocations keep their meaning.
+func selectProfiles(o Options) ([]profile, error) {
+	for _, api := range o.APIs {
+		if !slices.ContainsFunc(registry, func(p profile) bool { return p.api == api }) {
+			return nil, fmt.Errorf("unknown API %q", api)
+		}
+	}
+	for _, name := range o.Profiles {
+		if _, ok := lookupProfile(name); !ok {
+			return nil, fmt.Errorf("unknown profile %q", name)
+		}
+	}
+	if len(o.APIs) == 0 && len(o.Profiles) == 0 {
+		return registry[:1], nil
+	}
+	selected := slices.DeleteFunc(slices.Clone(registry), func(p profile) bool {
+		return len(o.APIs) > 0 && !slices.Contains(o.APIs, p.api) ||
+			len(o.Profiles) > 0 && !slices.Contains(o.Profiles, p.name)
+	})
+	if len(selected) == 0 {
+		return nil, errors.New("the selected APIs and profiles do not match any profile")
+	}
+	return selected, nil
+}
+
+func validateOptions(o Options, selected []profile) error {
+	allowed := []string{}
+	for _, p := range selected {
+		if err := p.validateEnvironment(p.environment(o)); err != nil {
+			return err
+		}
+		allowed = append(allowed, p.features...)
 	}
 	if o.Timeout <= 0 {
 		return errors.New("timeout must be positive")
@@ -90,21 +120,14 @@ func validateOptions(o Options) error {
 	if err := validateRunMode(o.RunMode); err != nil {
 		return err
 	}
-	for _, api := range o.APIs {
-		if api != ClusterProfileAPI {
-			return fmt.Errorf("unknown API %q", api)
-		}
-	}
-	for _, profile := range o.Profiles {
-		if profile != ProducerProfile {
-			return fmt.Errorf("unknown profile %q", profile)
-		}
-	}
-	if err := validateFeatures(o.SupportedFeatures); err != nil {
+	if err := validateFeatures(o.SupportedFeatures, allowed); err != nil {
 		return err
 	}
 	if err := validateFormats(o.ReportFormats); err != nil {
 		return err
+	}
+	if len(selected) > 1 && !o.ReportPerAPI {
+		return errors.New("each profile has its own report; select one profile or use report-output per-api")
 	}
 	if o.RunMode == Submission && o.TestFilter != "" {
 		return errors.New("submission runs cannot filter checks; select APIs, profiles, and supported features instead")
@@ -112,11 +135,11 @@ func validateOptions(o Options) error {
 	return nil
 }
 
-func validateFeatures(names []string) error {
+func validateFeatures(names, allowed []string) error {
 	seen := map[string]bool{}
 	for _, f := range names {
-		if !slices.Contains(features, f) {
-			return fmt.Errorf("unknown supported feature %q", f)
+		if !slices.Contains(allowed, f) {
+			return fmt.Errorf("supported feature %q is not offered by the selected profiles", f)
 		}
 		if seen[f] {
 			return fmt.Errorf("duplicate supported feature %q", f)
@@ -129,25 +152,22 @@ func validateFeatures(names []string) error {
 	return nil
 }
 
-func newReport(o Options) ConformanceReport {
-	supported := slices.Clone(o.SupportedFeatures)
+func newReport(o Options, p profile) ConformanceReport {
+	supported := slices.DeleteFunc(slices.Clone(o.SupportedFeatures), func(f string) bool {
+		return !slices.Contains(p.features, f)
+	})
 	slices.Sort(supported)
 	return ConformanceReport{
 		APIVersion: ReportAPIVersion, Kind: ReportKind, Date: time.Now().UTC().Format(time.RFC3339Nano), RunMode: o.RunMode,
 		Implementation: o.Implementation,
-		Suite:          SuiteInfo{Source: o.Suite, CatalogDigest: CatalogDigest()},
-		Specification:  Specification{Revision: SpecRevision, URL: specRef("")},
+		Suite:          SuiteInfo{Source: o.Suite, CatalogDigest: p.digest()},
+		Specification:  p.spec,
 		API:            APIInfo{GroupVersion: cp.GroupVersion.String(), Revision: APIRevision},
-		Environment: Environment{
-			InventoryNamespace: o.Namespace,
-			ClusterManager:     o.ClusterManager,
-			ExpectedClusters:   o.ExpectedClusters,
-			ObservedProfiles:   []ObjectReference{},
-		},
+		Environment:    p.environment(o),
 		Profiles: []ProfileReport{
 			{
-				Name:              ProducerProfile,
-				API:               ClusterProfileAPI,
+				Name:              p.name,
+				API:               p.api,
 				Role:              RoleProducer,
 				SupportedFeatures: supported,
 				Tests:             []TestResult{},
@@ -239,18 +259,49 @@ func serverResources(ctx context.Context, d discovery.DiscoveryInterface) (*meta
 	})
 }
 
-// Run observes one inventory. It never registers clusters, writes resources,
-// modifies Options, or retries until an implementation appears conformant.
+// Run observes one profile and returns its report; use RunAll to select more
+// than one. It never registers clusters, writes resources, modifies Options,
+// or retries until an implementation appears conformant.
 func Run(ctx context.Context, options Options) (ConformanceReport, error) {
+	if selected, err := selectProfiles(options); err == nil && len(selected) > 1 {
+		return ConformanceReport{}, errors.New("more than one profile is selected; use RunAll")
+	}
+	reports, err := RunAll(ctx, options)
+	return reports[0], err
+}
+
+// RunAll observes each selected profile and returns one report per profile.
+func RunAll(ctx context.Context, options Options) ([]ConformanceReport, error) {
 	o := defaults(options)
-	report := newReport(o)
+	selected, invalid := selectProfiles(o)
+	if invalid != nil {
+		selected = registry[:1]
+	} else {
+		invalid = validateOptions(o, selected)
+	}
+	reports := make([]ConformanceReport, 0, len(selected))
+	errs := make([]error, 0, len(selected))
+	for _, p := range selected {
+		report, err := run(ctx, o, p, invalid)
+		reports = append(reports, report)
+		errs = append(errs, err)
+	}
+	if invalid != nil {
+		return reports, invalid
+	}
+	return reports, errors.Join(errs...)
+}
+
+// run observes one profile; invalid is a setup error already found in the options.
+func run(ctx context.Context, o Options, p profile, invalid error) (ConformanceReport, error) {
+	report := newReport(o, p)
 	abort := func(err error) (ConformanceReport, error) {
 		report.Errors = append(report.Errors, err.Error())
 		finish(&report)
 		return report, err
 	}
 	fillAll := func(state Outcome, message string) {
-		for _, req := range catalog {
+		for _, req := range p.catalog {
 			report.Profiles[0].Tests = append(report.Profiles[0].Tests, outcome(req, state, message))
 		}
 	}
@@ -258,8 +309,8 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		fillAll(Unknown, err.Error())
 		return abort(err)
 	}
-	if err := validateOptions(o); err != nil {
-		return failSetup(err)
+	if invalid != nil {
+		return failSetup(invalid)
 	}
 	filter, err := ginkgotypes.ParseLabelFilter(o.TestFilter)
 	if err != nil {
@@ -270,9 +321,9 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		if req.Optional() {
 			level = OptionalLabel
 		}
-		return filter([]string{req.ID, level, ClusterProfileAPI, ProducerProfile, req.Feature})
+		return filter([]string{req.ID, level, p.api, p.name, req.Feature})
 	}
-	if !slices.ContainsFunc(catalog, selected) {
+	if !slices.ContainsFunc(p.catalog, selected) {
 		fillAll(Skipped, excludedByFilter)
 		return abort(errors.New("no checks selected"))
 	}
@@ -294,12 +345,49 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 	if err = ctx.Err(); err != nil {
 		return failSetup(err)
 	}
-	if _, nerr := o.Kubernetes.CoreV1().Namespaces().Get(ctx, o.Namespace, metav1.GetOptions{}); nerr != nil &&
-		!apierrors.IsForbidden(nerr) {
-		return failSetup(fmt.Errorf("read inventory namespace %q: %w", o.Namespace, nerr))
+	check, err := p.observe(ctx, o, &report)
+	if err != nil {
+		return failSetup(err)
+	}
+	for _, req := range p.catalog {
+		result := outcome(req, Skipped, excludedByFilter)
+		if selected(req) {
+			result = check(req)
+		}
+		report.Profiles[0].Tests = append(report.Profiles[0].Tests, result)
+	}
+	finish(&report)
+	if o.RunMode == Submission {
+		if err := ValidateReport(report, true); err != nil {
+			return abort(err)
+		}
+	}
+	if report.Result != Success {
+		return report, fmt.Errorf("conformance result: %s", report.Result)
+	}
+	return report, nil
+}
+
+// readNamespace fails setup when a selected namespace is missing. Forbidden is
+// tolerated because observing the objects in it does not need namespace access.
+func readNamespace(ctx context.Context, o Options, role, namespace string) error {
+	if _, err := o.Kubernetes.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{}); err != nil &&
+		!apierrors.IsForbidden(err) {
+		return fmt.Errorf("read %s namespace %q: %w", role, namespace, err)
+	}
+	return nil
+}
+
+func observeClusterProfiles(
+	ctx context.Context,
+	o Options,
+	r *ConformanceReport,
+) (func(Requirement) TestResult, error) {
+	if err := readNamespace(ctx, o, "inventory", o.Namespace); err != nil {
+		return nil, err
 	}
 	s := snapshot{expected: o.ExpectedClusters}
-	s.resources, s.apiError = serverResources(ctx, d)
+	s.resources, s.apiError = serverResources(ctx, o.Kubernetes.Discovery())
 	if s.apiError != nil {
 		s.profileError = s.apiError
 	} else {
@@ -314,33 +402,9 @@ func Run(ctx context.Context, options Options) (ConformanceReport, error) {
 		return o.ClusterManager != "" && p.Spec.ClusterManager.Name != o.ClusterManager
 	})
 	for _, p := range s.profiles {
-		report.Environment.ObservedProfiles = append(
-			report.Environment.ObservedProfiles,
-			ObjectReference{
-				Namespace:       p.Namespace,
-				Name:            p.Name,
-				UID:             string(p.UID),
-				ResourceVersion: p.ResourceVersion,
-			},
-		)
+		r.Environment.ObservedProfiles = append(r.Environment.ObservedProfiles, referenceTo(p.ObjectMeta))
 	}
-	for _, req := range catalog {
-		result := outcome(req, Skipped, excludedByFilter)
-		if selected(req) {
-			result = check(req, s)
-		}
-		report.Profiles[0].Tests = append(report.Profiles[0].Tests, result)
-	}
-	finish(&report)
-	if o.RunMode == Submission {
-		if err := ValidateReport(report, true); err != nil {
-			return abort(err)
-		}
-	}
-	if report.Result != Success {
-		return report, fmt.Errorf("conformance result: %s", report.Result)
-	}
-	return report, nil
+	return func(req Requirement) TestResult { return check(req, s) }, nil
 }
 
 func finish(r *ConformanceReport) {
@@ -361,11 +425,14 @@ func RunConformance(t *testing.T, options Options) {
 		ctx, cancel = context.WithDeadline(ctx, deadline)
 		defer cancel()
 	}
-	report, err := Run(ctx, o)
-	if writeErr := WriteReports(o.ReportDirectory, o.ReportFormats, o.ReportPerAPI, report); writeErr != nil {
-		t.Errorf("write conformance report: %v", writeErr)
+	reports, err := RunAll(ctx, o)
+	for _, report := range reports {
+		if writeErr := WriteReports(o.ReportDirectory, o.ReportFormats, o.ReportPerAPI, report); writeErr != nil {
+			t.Errorf("write conformance report: %v", writeErr)
+		}
+		p := report.Profiles[0]
+		t.Logf("%s: %s (%d checks)", p.Name, report.Result, p.Statistics.Total)
 	}
-	t.Logf("%s: %s (%d checks)", ProducerProfile, report.Result, report.Profiles[0].Statistics.Total)
 	if err != nil {
 		t.Error(err)
 	}
@@ -409,8 +476,24 @@ func RegisterFlags(fs *flag.FlagSet, o *Options) {
 		o.ExpectedClusters,
 		"expected number of managed profiles; zero requires at least one",
 	)
-	fs.Var(csvFlag{&o.APIs}, "apis", "APIs to observe (ClusterProfile)")
-	fs.Var(csvFlag{&o.Profiles}, "profiles", "conformance profiles (CLUSTERPROFILE-PRODUCER)")
+	fs.StringVar(
+		&o.DecisionNamespace,
+		"decision-namespace",
+		o.DecisionNamespace,
+		"namespace a scheduler publishes PlacementDecisions to",
+	)
+	fs.StringVar(
+		&o.SchedulerName,
+		"scheduler-name",
+		o.SchedulerName,
+		"schedulerName under test; empty observes all schedulers",
+	)
+	apis, names := make([]string, 0, len(registry)), make([]string, 0, len(registry))
+	for _, p := range registry {
+		apis, names = append(apis, p.api), append(names, p.name)
+	}
+	fs.Var(csvFlag{&o.APIs}, "apis", "APIs to observe ("+strings.Join(apis, ", ")+"); default "+apis[0])
+	fs.Var(csvFlag{&o.Profiles}, "profiles", "conformance profiles ("+strings.Join(names, ", ")+"); default "+names[0])
 	fs.Var(csvFlag{&o.SupportedFeatures}, "supported-features", "optional capabilities claimed by this implementation")
 	fs.StringVar(&o.TestFilter, "test-filter", o.TestFilter, "development-only label expression")
 	fs.StringVar(&o.RunMode, "run-mode", o.RunMode, "development or submission")

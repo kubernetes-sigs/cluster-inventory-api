@@ -1,8 +1,9 @@
 # Conformance Reports
 
-Cluster manager maintainers submit conformance results by opening a pull request
-to this repository. Each YAML report describes one implementation version and
-operating mode, observing one inventory with a fixed suite and specification.
+Cluster manager and scheduler maintainers submit conformance results by opening a
+pull request to this repository. Each YAML report describes one implementation
+version and operating mode, observing one profile in one namespace with a fixed
+suite and specification.
 The suite writes reports locally; it does not upload them or open pull requests.
 
 See [Conformance Tests](../README.md) for prerequisites, test coverage, and
@@ -122,6 +123,18 @@ go test -count=1 -run '^TestConformance$' -v . -args \
     --report-dir "$REPORT_DIR"
 ```
 
+#### PlacementDecision Submissions
+
+A scheduler generates its report the same way, with these changes to the command
+above:
+
+- Replace `--namespace`, `--cluster-manager`, and `--expected-clusters` with
+  `--apis PlacementDecision`, `--decision-namespace`, and optionally
+  `--scheduler-name`.
+- Claim PlacementDecision features in `--supported-features`.
+- Add `--report-output per-api`. The report is written to
+  `report-placementdecision.yaml`; validate and submit that file below.
+
 Submission mode prohibits check filters and validates the generated report. The
 two source revisions must be full commit hashes; versions identify a release or
 source snapshot. For an imported suite, use its actual module version and source
@@ -153,7 +166,7 @@ catalog. Do not modify the report to make it pass validation.
 | Specification and API revisions match the catalog | Prevents comparing different contracts as equivalent |
 | Every catalog check appears once with unchanged requirement metadata | Prevents checks from being omitted or redefined |
 | Outcomes, counts, and aggregate results agree | Prevents unsuccessful checks from being presented as successful |
-| Observed Kubernetes version and inventory object references | Identifies the observed environment and snapshot |
+| Observed Kubernetes version, and the ClusterProfile or PlacementDecision object references the run observed | Identifies the observed environment and snapshot |
 | Result is `success` or `partial` | Excludes failed and undetermined runs |
 
 Only `success` denotes conformance for Required checks and all claimed features.
@@ -209,7 +222,7 @@ writing output. A report with an unknown catalog or an invalid result aborts
 generation. Use the suite matching the reports' catalog.
 
 Rows retain implementation versions, modes, inventories, and run dates, grouped
-by exact specification, suite, and API revisions. Partial results remain partial;
+by exact profile, specification, suite, and API revisions. Partial results remain partial;
 unclaimed features remain unclaimed. Links are relative to `--reports-dir`, so a
 saved matrix belongs at the root of that report directory. Generating a matrix
 does not upload results or publish a website.
