@@ -1,13 +1,16 @@
 # Conformance
 
 Cluster manager developers use this suite to test the ClusterProfile objects
-produced by their implementation. The suite observes an inventory on a running
-cluster and generates HTML and YAML reports. Each report identifies the
+produced by their implementation, and scheduler developers use it to test the
+PlacementDecision objects they publish. The suite observes a running cluster and
+generates HTML and YAML reports. Each report identifies the
 implementation, suite, specification, and API revisions used for that run.
 
 ## Table of Contents
 
 - [Conformance Tests](#conformance-tests)
+  - [ClusterProfile Producer](#clusterprofile-producer)
+  - [PlacementDecision Producer](#placementdecision-producer)
   - [Running Tests](#running-tests)
   - [Integrating the Suite](#integrating-the-suite)
   - [Interpreting Results](#interpreting-results)
@@ -18,11 +21,24 @@ implementation, suite, specification, and API revisions used for that run.
 
 ## Conformance Tests
 
-The `CLUSTERPROFILE-PRODUCER` profile covers the `ClusterProfile` API in
-`multicluster.x-k8s.io/v1alpha2`. Its requirement catalog references a fixed
-[KEP-4322 revision](https://github.com/kubernetes/enhancements/blob/3300d87b960c22051c66f1d1072e424a5cda5b5d/keps/sig-multicluster/4322-cluster-inventory/README.md).
-Required checks cover KEP MUST requirements; Optional checks cover capabilities an
-implementation can claim through `--supported-features`.
+The suite provides one conformance profile per API. Each profile checks the
+objects an implementation produces against a requirement catalog pinned to a
+fixed KEP revision. Required checks cover KEP MUST requirements; Optional checks
+cover capabilities an implementation can claim through `--supported-features`.
+
+| Profile | API in `multicluster.x-k8s.io/v1alpha2` | Implementation under test | Specification |
+| --- | --- | --- | --- |
+| [`CLUSTERPROFILE-PRODUCER`](#clusterprofile-producer) | `ClusterProfile` | Cluster managers | [KEP-4322](https://github.com/kubernetes/enhancements/blob/3300d87b960c22051c66f1d1072e424a5cda5b5d/keps/sig-multicluster/4322-cluster-inventory/README.md) |
+| [`PLACEMENTDECISION-PRODUCER`](#placementdecision-producer) | `PlacementDecision` | Schedulers | [KEP-5313](https://github.com/kubernetes/enhancements/blob/a6d15526d6383230e2d17cd4af9f7e783b581cbb/keps/sig-multicluster/5313-placement-decision-api/README.md) |
+
+Every profile checks a snapshot of output conventions: it lists objects once and
+never creates, updates, or deletes them. CRD schema validation is covered by this
+repository's integration tests.
+
+### ClusterProfile Producer
+
+This profile observes the ClusterProfiles a cluster manager publishes in the
+selected inventory namespace.
 
 | Checks | Objects inspected | Requirement |
 | --- | --- | --- |
@@ -39,11 +55,43 @@ profiles omit IDs. The expected count does not establish a correspondence
 between registered member clusters and individual profiles; the implementation's
 test setup must establish that correspondence.
 
-The suite checks a snapshot of output conventions. Condition presence does not
-verify cluster health, and a non-empty version does not verify the member's
-actual version. Registration lifecycle, consumer behavior, credentials, and
-property propagation from member-cluster sources are outside this profile.
-CRD schema validation is covered by this repository's integration tests.
+#### Out of scope for ClusterProfile
+
+- Registration lifecycle, credentials, and property propagation from member-cluster sources.
+- Member-state truth: condition presence does not verify cluster health, and a
+  non-empty version does not verify the member's actual version.
+- Consumer behavior.
+
+### PlacementDecision Producer
+
+This profile observes the PlacementDecisions a scheduler publishes in the
+selected decision namespace, optionally narrowed to one `schedulerName`. A
+decision is the set of slices sharing a `multicluster.x-k8s.io/decision-key`, or
+a single slice without one.
+
+| Checks | Objects inspected | Requirement |
+| --- | --- | --- |
+| API availability and namespace scope | API discovery and access to the decision namespace | Required |
+| ClusterProfile reference resolution | Every `clusterProfileRef`, in the namespace it names or else the decision's own | Names an existing ClusterProfile |
+| ClusterProfile reference uniqueness | All slices of a decision | Each ClusterProfile listed at most once |
+| Decision key correlation | Slices carrying `decision-key` or `decision-index` | A slice with `decision-index` above 0 has a non-empty `decision-key` |
+| Optional capabilities | Selected decisions | Reported individually; required for success when claimed |
+
+A decision-index above 0 shows that a decision spans several slices, which the
+KEP requires to share a `decision-key`. A single slice needs neither label.
+
+#### Out of scope for PlacementDecision
+
+- Slices of one decision that carry no labels, or different keys without
+  `decision-index`: only the scheduler knows they belong together.
+- Lifecycle over time: creating or deleting slices as decisions change, and
+  deleting every slice when a decision ends.
+- Consumer behavior, including treating decisions as read only.
+- Stable ordering of `decisions` to reduce churn, and `decision-revision`, which
+  the KEP describes for consumers but does not define.
+- Decision groups, proposed in
+  [enhancements#6452](https://github.com/kubernetes/enhancements/pull/6452) and not
+  part of the pinned revision.
 
 ### Running Tests
 
@@ -54,10 +102,14 @@ CRD schema validation is covered by this repository's integration tests.
 - Install the implementation and its ClusterProfile CRD on the inventory cluster.
 - Register member clusters using the implementation's own mechanism, select the
   inventory to test, and wait for the implementation to publish their profiles.
-- Provide a kubeconfig with permission to list all ClusterProfiles in that
-  namespace and perform Kubernetes API discovery. The suite also reads the
-  namespace to catch configuration errors, but tolerates a forbidden namespace
-  read.
+- For PlacementDecision tests, run the scheduler and wait for it to publish its
+  decisions to the namespace under test.
+- Provide a kubeconfig with permission to perform Kubernetes API discovery and to
+  list all ClusterProfiles in the inventory namespace. For PlacementDecision
+  tests, it also needs to list PlacementDecisions in the decision namespace and
+  ClusterProfiles in every namespace those decisions reference. The suite also
+  reads each selected namespace to catch configuration errors, but tolerates a
+  forbidden namespace read.
 
 Cluster registration, inventory selection, and readiness are implementation
 preconditions. The suite does not create, update, or delete ClusterProfiles and
@@ -90,10 +142,35 @@ This is a development run. Open `$REPORT_DIR/report.html` to inspect the checks;
 The root `make test-conformance` target also accepts observer flags through
 `CONFORMANCE_ARGS`; relative paths passed to it resolve from `conformance/`.
 
+#### PlacementDecision Tests
+
+Select the PlacementDecision API and the namespace the scheduler publishes to.
+`--scheduler-name` narrows the observed decisions to one scheduler:
+
+```sh
+cd conformance
+REPORT_DIR=$(mktemp -d)
+go test -count=1 -run '^TestConformance$' -v . -args \
+    --kubeconfig /absolute/path/hub.kubeconfig \
+    --context inventory-hub \
+    --apis PlacementDecision \
+    --decision-namespace fleet-system \
+    --scheduler-name fleet-scheduler \
+    --report-format html,yaml \
+    --report-output per-api \
+    --report-dir "$REPORT_DIR"
+```
+
+To run both profiles in one invocation, pass `--apis ClusterProfile,PlacementDecision`
+with the inputs of both and `--report-output per-api`. Each profile writes its own
+report, so a run that selects more than one profile requires per-API output.
+
 #### Supported Features
 
 Claim only capabilities the implementation supplies. Unclaimed Optional checks
 remain visible in reports but do not affect the overall result.
+
+ClusterProfile features:
 
 | Feature | What the suite checks |
 | --- | --- |
@@ -108,6 +185,20 @@ remain visible in reports but do not affect the overall result.
 covers all profiles in the namespace, including profiles belonging to other
 cluster managers. Supplying `--cluster-manager` does not narrow that check.
 
+PlacementDecision features:
+
+| Feature | What the suite checks |
+| --- | --- |
+| `OrderedDecisionSlices` | Within a decision that uses `decision-index`, every slice has one and the values run 0, 1, 2, ... without gaps or duplicates |
+| `WorkloadScopedDecisions` | Every slice carries a non-empty `placement-key`, the same on all slices of a decision |
+| `SchedulerName` | Every slice reports `schedulerName` |
+| `DecisionReason` | Every decision entry reports a `reason` |
+| `DeterministicSliceNames` | Slices that carry `decision-index` are named `<base>-<decision-index>`, with one base per decision |
+
+`OrderedDecisionSlices` is a SHOULD in the KEP, so a broken ordering is reported as
+failed even when unclaimed; it affects the result only when claimed. A gap or
+duplicate can also mean the snapshot was taken during a reschedule.
+
 #### Suite Level Options
 
 | Option | Meaning |
@@ -116,16 +207,19 @@ cluster managers. Supplying `--cluster-manager` does not narrow that check.
 | `--namespace` | Required inventory namespace |
 | `--cluster-manager` | `spec.clusterManager.name` selection; empty inspects all managers |
 | `--expected-clusters` | Zero requires at least one selected profile; a positive value requires exactly that number |
-| `--apis`, `--profiles` | API/profile selection; currently `ClusterProfile` and `CLUSTERPROFILE-PRODUCER` |
+| `--decision-namespace` | Namespace a scheduler publishes PlacementDecisions to; required when that profile is selected |
+| `--scheduler-name` | `schedulerName` selection; empty inspects all schedulers |
+| `--apis`, `--profiles` | API/profile selection: `ClusterProfile`, `PlacementDecision` and `CLUSTERPROFILE-PRODUCER`, `PLACEMENTDECISION-PRODUCER`; defaults to the ClusterProfile producer |
 | `--supported-features` | Comma-separated Optional capabilities claimed by the implementation |
 | `--test-filter` | Development-only label expression using check IDs, API/profile names, Required, Optional, or features |
 | `--run-mode` | `development` (default) or `submission` |
 | `--timeout` | API observation deadline; defaults to 30 seconds |
 | `--report-dir` | Output directory; defaults to the working directory |
 | `--report-format` | `html`, `yaml`, or both; defaults to `html` |
-| `--report-output` | `single` (default) or `per-api` |
+| `--report-output` | `single` (default) or `per-api`; more than one selected profile requires `per-api` |
 
-Unknown APIs, profiles, or features fail the run. Use `--test-filter` to select
+Unknown APIs, profiles, or features fail the run. A claimed feature must belong
+to a selected profile. Use `--test-filter` to select
 observer checks during development and Go test `-v` to control verbosity. Use
 `go test -run '^TestConformance$' . -args -help` from `conformance/` for all flags,
 including implementation and suite metadata.
@@ -171,7 +265,9 @@ the reports as artifacts.
 
 For programmatic configuration, `RunConformance(t, options)` accepts per-run
 `Options`, including connection settings or explicit clients. `Run(ctx, options)`
-returns a typed report and an error without invoking Go test failure handlers.
+returns a typed report and an error without invoking Go test failure handlers;
+`RunAll(ctx, options)` does the same for several selected profiles and returns one
+report per profile.
 `RegisterFlags` configures an independent `flag.FlagSet`. The `TestConformance`
 entry point uses observer flags registered on `flag.CommandLine` at import time.
 
@@ -247,18 +343,18 @@ revision from which the binary was built when supplying submission metadata.
 ### Conformance Profiles
 
 A conformance profile groups the Required checks for an API and its Optional
-capabilities. This suite currently provides `CLUSTERPROFILE-PRODUCER` for
-`ClusterProfile`; both are selected by default. Specify them explicitly with
-`--apis ClusterProfile --profiles CLUSTERPROFILE-PRODUCER`, and use
+capabilities. This suite provides `CLUSTERPROFILE-PRODUCER` for `ClusterProfile`,
+which is selected by default, and `PLACEMENTDECISION-PRODUCER` for
+`PlacementDecision`. Select them with `--apis` or `--profiles`, and use
 `--supported-features` to claim the capabilities of the implementation under
 test. Profile selection does not replace the inventory and registration
 prerequisites in [Running Tests](#running-tests).
 
 ## Conformance Reports
 
-HTML and YAML are rendered from the same report. Single reports are named
-`report.html` and `report.yaml`; per-API output uses
-`report-clusterprofile.html` and `report-clusterprofile.yaml`.
+HTML and YAML are rendered from the same report. Each report covers one profile.
+Single reports are named `report.html` and `report.yaml`; per-API output uses the
+API name, such as `report-clusterprofile.yaml` and `report-placementdecision.yaml`.
 
 YAML uses `conformance.multicluster.x-k8s.io/v1alpha1`, kind `ConformanceReport`.
 This is a report schema, not a CRD to install; the tested API remains
@@ -270,7 +366,7 @@ This is a report schema, not a CRD to install; the tested API remains
 | Suite | Version or source snapshot, source commit, source state, and requirement catalog digest |
 | Specification | Fixed normative source revision and URL |
 | API | Group version and API types revision used by the suite, not an inferred installed CRD release |
-| Environment | Observed Kubernetes version, inventory, manager selection, expected count, and object UID/resourceVersion |
+| Environment | Observed Kubernetes version, the profile's inputs (inventory, manager selection, and expected count, or decision namespace and scheduler), and object UID/resourceVersion |
 | Profiles | Claimed features, every catalog check, counts, and computed results |
 
 Development reports can omit source metadata and contain filtered results. They

@@ -5,7 +5,8 @@
 <h1>Cluster Inventory API conformance</h1><p>Result: <strong>{{.Result}}</strong> · {{.RunMode}} · {{.Date}}</p>
 <p>Implementation: {{.Implementation.Organization}} / {{.Implementation.Project}} {{.Implementation.Version}} ({{.Implementation.Mode}})<br>Commit: <code>{{.Implementation.Revision}}</code></p>
 <p>Suite: {{.Suite.Version}} · <code>{{.Suite.Revision}}</code><br>API: {{.API.GroupVersion}} · <code>{{.API.Revision}}</code><br>Specification: <a href="{{.Specification.URL}}">{{.Specification.Revision}}</a></p>
-<p>Inventory: {{.Environment.InventoryNamespace}} · Manager: {{.Environment.ClusterManager}} · Kubernetes: {{.Environment.KubernetesVersion}}</p>
+{{if .Environment.DecisionNamespace}}<p>Decisions: {{.Environment.DecisionNamespace}} · Scheduler: {{.Environment.SchedulerName}} · Kubernetes: {{.Environment.KubernetesVersion}}</p>
+{{else}}<p>Inventory: {{.Environment.InventoryNamespace}} · Manager: {{.Environment.ClusterManager}} · Kubernetes: {{.Environment.KubernetesVersion}}</p>{{end}}
 {{range .Errors}}<p>Run error: {{.}}</p>{{end}}
 {{range .Profiles}}<h2>{{.Name}}: {{.Result}}</h2><p>Claimed features: {{range .SupportedFeatures}}{{.}} {{else}}None{{end}}</p>
 <table><caption>Checks: {{.Statistics.Passed}} passed / {{.Statistics.Total}} total</caption><thead><tr><th>Check</th><th>Requirement</th><th>Feature / scope</th><th>Outcome</th></tr></thead><tbody>

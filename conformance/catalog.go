@@ -33,22 +33,29 @@ const (
 	KubernetesVersion         = "KubernetesVersion"
 )
 
-// features lists each optional capability once, in catalog order.
-var features = func() []string {
+// features lists each optional ClusterProfile capability once, in catalog order.
+var features = featuresOf(catalog)
+
+// featuresOf lists each optional capability of a catalog once, in catalog order.
+func featuresOf(c []Requirement) []string {
 	out := []string{}
-	for _, req := range catalog {
-		if req.Optional() {
+	for _, req := range c {
+		if req.Optional() && !slices.Contains(out, req.Feature) {
 			out = append(out, req.Feature)
 		}
 	}
 	return out
-}()
+}
 
 func SupportedFeatureNames() []string { return slices.Clone(features) }
 
-func specRef(anchor string) string {
-	base := "https://github.com/kubernetes/enhancements/blob/" + SpecRevision +
-		"/keps/sig-multicluster/4322-cluster-inventory/README.md"
+const clusterInventoryKEP = "keps/sig-multicluster/4322-cluster-inventory/README.md"
+
+func specRef(anchor string) string { return kepRef(SpecRevision, clusterInventoryKEP, anchor) }
+
+// kepRef links a section of a KEP at the pinned revision the catalog was written against.
+func kepRef(revision, path, anchor string) string {
+	base := "https://github.com/kubernetes/enhancements/blob/" + revision + "/" + path
 	if anchor != "" {
 		base += "#" + anchor
 	}
@@ -144,13 +151,53 @@ var catalog = []Requirement{
 	},
 }
 
-var catalogDigest = sync.OnceValue(func() string {
-	data, _ := json.Marshal(catalog)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-})
+var catalogDigest = digestOf(catalog)
+
+// digestOf fingerprints a catalog so a report can only be validated by the suite that wrote it.
+func digestOf(c []Requirement) func() string {
+	return sync.OnceValue(func() string {
+		data, _ := json.Marshal(c)
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:])
+	})
+}
 
 func CatalogDigest() string { return catalogDigest() }
+
+var clusterProfileProducer = profile{
+	name:     ProducerProfile,
+	api:      ClusterProfileAPI,
+	spec:     Specification{Revision: SpecRevision, URL: specRef("")},
+	catalog:  catalog,
+	features: features,
+	digest:   catalogDigest,
+	environment: func(o Options) Environment {
+		return Environment{
+			InventoryNamespace: o.Namespace,
+			ClusterManager:     o.ClusterManager,
+			ExpectedClusters:   o.ExpectedClusters,
+			ObservedProfiles:   []ObjectReference{},
+		}
+	},
+	validateEnvironment: func(e Environment) error { return validateInventory(e.InventoryNamespace, e.ExpectedClusters) },
+	observed: func(e Environment) (string, string, []ObjectReference) {
+		return "profile", e.InventoryNamespace, e.ObservedProfiles
+	},
+	namespaceColumn: "Inventory",
+	observe:         observeClusterProfiles,
+}
+
+// registry lists every profile. The first entry is the default selection, so
+// runs that select no API or profile keep observing ClusterProfiles only.
+var registry = []profile{clusterProfileProducer, placementDecisionProducer}
+
+func lookupProfile(name string) (profile, bool) {
+	idx := slices.IndexFunc(registry, func(p profile) bool { return p.name == name })
+	if idx < 0 {
+		return profile{}, false
+	}
+	return registry[idx], true
+}
 
 func gate(t TestResult, supported []string) bool {
 	return !t.Optional() || slices.Contains(supported, t.Feature)

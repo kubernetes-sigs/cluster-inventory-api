@@ -103,32 +103,35 @@ func ValidateReport(r ConformanceReport, submission bool) error {
 	if err := validateRunMode(r.RunMode); err != nil {
 		return err
 	}
-	if r.Specification.Revision != SpecRevision || r.Specification.URL != specRef("") ||
-		r.Suite.CatalogDigest != CatalogDigest() {
+	if len(r.Profiles) != 1 {
+		return errors.New("report must contain the selected producer profile exactly once")
+	}
+	p, ok := lookupProfile(r.Profiles[0].Name)
+	if !ok {
+		return errors.New("unknown profile, API, or role")
+	}
+	if r.Specification != p.spec || r.Suite.CatalogDigest != p.digest() {
 		return errors.New("unknown specification or check catalog; validate with the matching suite revision")
 	}
 	if r.API.GroupVersion != cp.GroupVersion.String() || r.API.Revision != APIRevision {
 		return errors.New("unknown tested API revision")
 	}
-	if len(r.Profiles) != 1 {
-		return errors.New("report must contain the selected producer profile exactly once")
-	}
-	if err := validateInventory(r.Environment.InventoryNamespace, r.Environment.ExpectedClusters); err != nil {
+	if err := p.validateEnvironment(r.Environment); err != nil {
 		return err
 	}
-	if err := validateProfile(r.Profiles[0]); err != nil {
+	if err := validateProfile(r.Profiles[0], p); err != nil {
 		return err
 	}
 	if r.Result != overall(&r) {
 		return errors.New("overall result does not match profile results and errors")
 	}
 	if submission {
-		return validateSubmission(r)
+		return validateSubmission(r, p)
 	}
 	return nil
 }
 
-func validateSubmission(r ConformanceReport) error {
+func validateSubmission(r ConformanceReport, p profile) error {
 	if r.RunMode != Submission {
 		return errors.New("development reports cannot be submitted")
 	}
@@ -141,40 +144,41 @@ func validateSubmission(r ConformanceReport) error {
 	if r.Result != Success && r.Result != Partial {
 		return fmt.Errorf("%s reports cannot be accepted as conformance submissions", r.Result)
 	}
-	if len(r.Environment.ObservedProfiles) == 0 {
-		return errors.New("submission must identify observed profiles")
+	kind, namespace, observed := p.observed(r.Environment)
+	if len(observed) == 0 {
+		return fmt.Errorf("submission must identify observed %ss", kind)
 	}
 	objects := map[types.NamespacedName]bool{}
-	for _, object := range r.Environment.ObservedProfiles {
+	for _, object := range observed {
 		key := types.NamespacedName{Namespace: object.Namespace, Name: object.Name}
-		if object.Namespace != r.Environment.InventoryNamespace || object.Name == "" || object.UID == "" ||
+		if object.Namespace != namespace || object.Name == "" || object.UID == "" ||
 			object.ResourceVersion == "" ||
 			objects[key] {
-			return fmt.Errorf("invalid observed profile %q", key)
+			return fmt.Errorf("invalid observed %s %q", kind, key)
 		}
 		objects[key] = true
 	}
 	return nil
 }
 
-func validateProfile(p ProfileReport) error {
-	if p.Name != ProducerProfile || p.API != ClusterProfileAPI || p.Role != RoleProducer {
+func validateProfile(pr ProfileReport, p profile) error {
+	if pr.API != p.api || pr.Role != RoleProducer {
 		return errors.New("unknown profile, API, or role")
 	}
-	if err := validateFeatures(p.SupportedFeatures); err != nil {
+	if err := validateFeatures(pr.SupportedFeatures, p.features); err != nil {
 		return err
 	}
-	if len(p.Tests) != len(catalog) {
-		return fmt.Errorf("incomplete catalog: expected %d checks, got %d", len(catalog), len(p.Tests))
+	if len(pr.Tests) != len(p.catalog) {
+		return fmt.Errorf("incomplete catalog: expected %d checks, got %d", len(p.catalog), len(pr.Tests))
 	}
 	seen := map[string]bool{}
-	for _, t := range p.Tests {
+	for _, t := range pr.Tests {
 		if seen[t.ID] {
 			return fmt.Errorf("duplicate check %q", t.ID)
 		}
 		seen[t.ID] = true
-		idx := slices.IndexFunc(catalog, func(req Requirement) bool { return req.ID == t.ID })
-		if idx < 0 || t.Requirement != catalog[idx] {
+		idx := slices.IndexFunc(p.catalog, func(req Requirement) bool { return req.ID == t.ID })
+		if idx < 0 || t.Requirement != p.catalog[idx] {
 			return fmt.Errorf("unknown or modified requirement %q", t.ID)
 		}
 		switch t.Outcome {
@@ -189,8 +193,8 @@ func validateProfile(p ProfileReport) error {
 			return fmt.Errorf("required check %s cannot be not-supported", t.ID)
 		}
 	}
-	stats, result := summarize(p.Tests, p.SupportedFeatures)
-	if stats != p.Statistics || result != p.Result {
+	stats, result := summarize(pr.Tests, pr.SupportedFeatures)
+	if stats != pr.Statistics || result != pr.Result {
 		return errors.New("profile statistics or result does not match its checks")
 	}
 	return nil
@@ -232,7 +236,10 @@ func WriteReports(dir string, formats []string, perAPI bool, r ConformanceReport
 	}
 	base := "report"
 	if perAPI {
-		base += "-clusterprofile"
+		if len(r.Profiles) != 1 {
+			return errors.New("per-api output requires a report with exactly one profile")
+		}
+		base += "-" + strings.ToLower(r.Profiles[0].API)
 	}
 	for _, format := range slices.Compact(slices.Clone(formats)) {
 		var data bytes.Buffer
@@ -293,8 +300,8 @@ type matrixEntry struct {
 	path   string
 }
 
-// matrixGroup is the exact specification, suite, and API tuple a report was tested against.
-type matrixGroup struct{ spec, suite, api string }
+// matrixGroup is the exact profile, specification, suite, and API tuple a report was tested against.
+type matrixGroup struct{ profile, spec, suite, api string }
 
 var escapeCell = strings.NewReplacer("|", "\\|", "\n", " ", "\r", " ", "<", "&lt;", ">", "&gt;").Replace
 
@@ -346,6 +353,7 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 	slices.SortFunc(entries, func(a, b matrixEntry) int {
 		x, y := a.report, b.report
 		return cmp.Or(
+			cmp.Compare(x.Profiles[0].Name, y.Profiles[0].Name),
 			cmp.Compare(x.Specification.Revision, y.Specification.Revision),
 			cmp.Compare(x.Suite.Revision, y.Suite.Revision),
 			cmp.Compare(x.API.Revision, y.API.Revision),
@@ -357,11 +365,6 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 			cmp.Compare(a.path, b.path),
 		)
 	})
-	columns := slices.Concat(
-		[]string{"Implementation", "Version / commit", "Mode", "Profile", "Result", "Inventory", "Run date"},
-		features,
-		[]string{"Report"},
-	)
 	var out bytes.Buffer
 	out.WriteString(
 		"# Cluster Inventory API conformance\n\nEach row is a submitted run. " +
@@ -374,8 +377,16 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 	var group matrixGroup
 	for _, e := range entries {
 		r := e.report
-		if g := (matrixGroup{r.Specification.Revision, r.Suite.Revision, r.API.Revision}); g != group {
+		p := r.Profiles[0]
+		def, _ := lookupProfile(p.Name)
+		_, namespace, _ := def.observed(r.Environment)
+		if g := (matrixGroup{p.Name, r.Specification.Revision, r.Suite.Revision, r.API.Revision}); g != group {
 			group = g
+			columns := slices.Concat(
+				[]string{"Implementation", "Version / commit", "Mode", "Profile", "Result", def.namespaceColumn, "Run date"},
+				def.features,
+				[]string{"Report"},
+			)
 			fmt.Fprintf(
 				&out,
 				"## %s\n\nSpecification: `%s` · Suite: `%s` · API types: `%s`\n\n",
@@ -386,7 +397,6 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 			)
 			fmt.Fprintf(&out, "| %s |\n|%s\n", strings.Join(columns, " | "), strings.Repeat("---|", len(columns)))
 		}
-		p := r.Profiles[0]
 		fmt.Fprintf(
 			&out,
 			"| %s / %s | %s / `%s` | %s | %s | %s | %s | %s |",
@@ -397,10 +407,10 @@ func GenerateMatrix(reportsDirectory string, w io.Writer) error {
 			escapeCell(r.Implementation.Mode),
 			p.Name,
 			p.Result,
-			escapeCell(r.Environment.InventoryNamespace),
+			escapeCell(namespace),
 			r.Date,
 		)
-		for _, f := range features {
+		for _, f := range def.features {
 			fmt.Fprintf(&out, " %s |", featureStatus(p, f))
 		}
 		u := url.URL{Path: e.path}

@@ -111,6 +111,7 @@ func TestUnitMatrixComparabilityAndPartial(t *testing.T) {
 	s := out.String()
 	if strings.Count(s, "## multicluster.x-k8s.io/v1alpha2") != 2 || !strings.Contains(s, "| partial |") ||
 		!strings.Contains(s, "| success |") ||
+		!strings.Contains(s, "| Result | Inventory |") ||
 		!strings.Contains(s, "first/report.yaml") {
 		t.Fatalf("unexpected matrix:\n%s", s)
 	}

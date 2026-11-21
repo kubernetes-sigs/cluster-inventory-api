@@ -29,9 +29,26 @@ import (
 	cp "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 )
 
+// discovered is the served resource list of the API group version.
+type discovered struct {
+	resources *metav1.APIResourceList
+	apiError  error
+}
+
+// servedResource names a resource, how its listing is described, and the API checks that cover it.
+type servedResource struct {
+	name, listing, availabilityCheck, namespacedCheck string
+}
+
+var clusterProfileResource = servedResource{
+	name:              cp.ClusterProfileSchemeGroupVersionResource.Resource,
+	listing:           "the inventory",
+	availabilityCheck: CheckAPIAvailability,
+	namespacedCheck:   CheckNamespaced,
+}
+
 type snapshot struct {
-	resources    *metav1.APIResourceList
-	apiError     error
+	discovered
 	profiles     []cp.ClusterProfile
 	managed      []cp.ClusterProfile
 	profileError error
@@ -42,7 +59,7 @@ func outcome(req Requirement, state Outcome, message string) TestResult {
 	return TestResult{Requirement: req, Outcome: state, Message: message}
 }
 
-func checkAPI(req Requirement, s snapshot) TestResult {
+func checkAPI(req Requirement, s discovered, r servedResource, listError error) TestResult {
 	if s.apiError != nil {
 		if apierrors.IsNotFound(s.apiError) {
 			return outcome(req, Failed, "API group version is not served")
@@ -54,23 +71,23 @@ func checkAPI(req Requirement, s snapshot) TestResult {
 	}
 	idx := slices.IndexFunc(
 		s.resources.APIResources,
-		func(a metav1.APIResource) bool { return a.Name == cp.ClusterProfileSchemeGroupVersionResource.Resource },
+		func(a metav1.APIResource) bool { return a.Name == r.name },
 	)
 	if idx < 0 {
-		return outcome(req, Failed, "clusterprofiles is not served")
+		return outcome(req, Failed, r.name+" is not served")
 	}
-	if req.ID == CheckNamespaced && !s.resources.APIResources[idx].Namespaced {
-		return outcome(req, Failed, "clusterprofiles is cluster scoped")
+	if req.ID == r.namespacedCheck && !s.resources.APIResources[idx].Namespaced {
+		return outcome(req, Failed, r.name+" is cluster scoped")
 	}
-	if req.ID == CheckAPIAvailability && s.profileError != nil {
-		return outcome(req, Unknown, "Cannot list the inventory: "+s.profileError.Error())
+	if req.ID == r.availabilityCheck && listError != nil {
+		return outcome(req, Unknown, "Cannot list "+r.listing+": "+listError.Error())
 	}
 	return outcome(req, Passed, "")
 }
 
 func check(req Requirement, s snapshot) TestResult {
 	if req.Scope == ScopeAPI {
-		return checkAPI(req, s)
+		return checkAPI(req, s.discovered, clusterProfileResource, s.profileError)
 	}
 	if s.profileError != nil {
 		return outcome(req, Unknown, "Cannot list the inventory: "+s.profileError.Error())
@@ -167,13 +184,24 @@ func checkFields(req Requirement, profiles []cp.ClusterProfile) TestResult {
 			}
 		}
 	}
-	if len(missing) > 0 {
-		slices.Sort(missing)
-		state := NotSupported
-		if req.Level == LevelShould {
-			state = Failed
-		}
-		return outcome(req, state, "Not reported on: "+strings.Join(missing, ", "))
+	return unmet(req, "Not reported on: ", missing)
+}
+
+// unmet grades a capability the listed objects lack: a SHOULD fails, while a
+// MAY or Informative capability is not supported.
+func unmet(req Requirement, reason string, objects []string) TestResult {
+	if len(objects) == 0 {
+		return outcome(req, Passed, "")
 	}
-	return outcome(req, Passed, "")
+	slices.Sort(objects)
+	state := NotSupported
+	if req.Level == LevelShould {
+		state = Failed
+	}
+	return outcome(req, state, reason+strings.Join(objects, ", "))
+}
+
+// referenceTo identifies the exact object version a check observed.
+func referenceTo(m metav1.ObjectMeta) ObjectReference {
+	return ObjectReference{Namespace: m.Namespace, Name: m.Name, UID: string(m.UID), ResourceVersion: m.ResourceVersion}
 }
